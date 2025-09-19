@@ -1,0 +1,1 @@
+import { NextRequest, NextResponse } from 'next/server'; export async function GET(_req: NextRequest, { params }: { params: { token: string }}) { return NextResponse.json({ status:'pending', qr_code_payload:'0002012658...', qr_code_base64:'', expires_at:new Date(Date.now()+25*60*1000).toISOString() }); }
