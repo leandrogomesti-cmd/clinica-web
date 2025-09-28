@@ -1,107 +1,59 @@
-"use client";
+import { supabaseServer } from "@/lib/supabaseServer";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
-import { useEffect, useState } from "react";
+async function getContext() {
+  const sb = supabaseServer();
 
-type Intake = {
-  id: string;
-  nome: string;
-  telefone_whatsapp: string | null;
-  email: string | null;
-  cidade: string | null;
-  estado: string | null;
-  convenio: string | null;
-  created_at: string;
-  status: string;
-};
+  // 1) exige sessão
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) redirect("/login");
 
-export default function SecretariaPage() {
-  const [token, setToken] = useState("");
-  const [itens, setItens] = useState<Intake[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  // 2) exige perfil com role=staff (secretária)
+  const { data: profile } = await sb
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
 
-  const fetchItens = async () => {
-    if (!token) return;
-    setLoading(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/intake/list", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Falha ao listar");
-      setItens(json.items || []);
-    } catch (e: any) {
-      setMsg(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (profile?.role !== "staff") redirect("/login");
 
-  const aprovar = async (id: string) => {
-    if (!token) return;
-    setMsg(null);
-    try {
-      const res = await fetch("/api/intake/approve", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ id }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Falha ao aprovar");
-      setMsg("Cadastro aprovado com sucesso!");
-      // Recarrega lista
-      fetchItens();
-    } catch (e: any) {
-      setMsg(e.message);
-    }
-  };
+  return { sb, user };
+}
 
-  useEffect(() => {
-    // opcional: carregar automaticamente se já tiver token salvo no sessionStorage
-    const saved = sessionStorage.getItem("ADMIN_API_TOKEN");
-    if (saved) {
-      setToken(saved);
-    }
-  }, []);
+export default async function SecretariaPage() {
+  const { sb } = await getContext();
 
-  useEffect(() => {
-    if (token) {
-      sessionStorage.setItem("ADMIN_API_TOKEN", token);
-      fetchItens();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  // Lista pendências diretamente via RLS
+  const { data: itens, error } = await sb
+    .from("pacientes_intake")
+    .select("*")
+    .eq("status", "PENDENTE")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return <main className="p-6">Erro: {error.message}</main>;
+  }
+
+  // Server Action de aprovação
+  async function approveAction(formData: FormData) {
+    "use server";
+    const id = formData.get("id") as string;
+
+    const { sb } = await getContext();
+    const { error } = await sb.rpc("promover_intake_paciente", {
+      p_intake_id: id,
+    });
+    if (error) throw new Error(error.message);
+
+    revalidatePath("/secretaria");
+  }
 
   return (
     <main className="mx-auto max-w-5xl p-6">
       <h1 className="text-2xl font-semibold mb-4">Secretaria – Pré-cadastros</h1>
 
-      <div className="mb-4 flex items-center gap-3">
-        <input
-          type="password"
-          placeholder="Cole o ADMIN_API_TOKEN"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          className="border rounded px-3 py-2 w-full md:w-96"
-        />
-        <button
-          onClick={fetchItens}
-          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-        >
-          Atualizar
-        </button>
-      </div>
-
-      {msg && <p className="mb-3 text-sm">{msg}</p>}
-
-      {loading ? (
-        <p>Carregando…</p>
-      ) : itens.length === 0 ? (
+      {!itens || itens.length === 0 ? (
         <p>Nenhum pré-cadastro pendente.</p>
       ) : (
         <div className="overflow-auto border rounded">
@@ -131,12 +83,12 @@ export default function SecretariaPage() {
                     {new Date(it.created_at).toLocaleString("pt-BR")}
                   </td>
                   <td className="p-2">
-                    <button
-                      onClick={() => aprovar(it.id)}
-                      className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                    >
-                      Aprovar
-                    </button>
+                    <form action={approveAction}>
+                      <input type="hidden" name="id" value={it.id} />
+                      <button className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700">
+                        Aprovar
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))}
