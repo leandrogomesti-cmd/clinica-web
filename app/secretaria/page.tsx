@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import IntakeOcrButton from './IntakeOcrButton';
 
 type Intake = {
   id: string;
@@ -9,8 +10,8 @@ type Intake = {
   phone: string | null;
   cpf: string | null;
   rg: string | null;
-  data_nascimento: string | null;
-  created_at: string;
+  data_nascimento: string | null; // ISO (yyyy-mm-dd) ou null
+  created_at: string;             // ISO datetime
   status: string | null;
 };
 
@@ -23,11 +24,12 @@ export default function SecretariaIntakePage() {
   async function load() {
     setError(null);
     const { data, error } = await supabase
-      .from('pacientes_intake')
+      .from('vw_pacientes_intake_ui')
       .select('id, nome, phone, cpf, rg, data_nascimento, created_at, status')
       .eq('status', 'pendente')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(200);
+
     if (error) setError(error.message);
     setItems(data || []);
   }
@@ -37,7 +39,7 @@ export default function SecretariaIntakePage() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
-    return items.filter(it =>
+    return items.filter((it) =>
       (it.nome || '').toLowerCase().includes(s) ||
       (it.phone || '').toLowerCase().includes(s) ||
       (it.cpf || '').toLowerCase().includes(s) ||
@@ -65,8 +67,8 @@ export default function SecretariaIntakePage() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-4">
-      <h1 className="text-xl font-semibold">Pré-cadastros pendentes</h1>
+    <main className="max-w-6xl mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">Pré-cadastros pendentes</h1>
 
       <div className="flex gap-2">
         <input
@@ -78,18 +80,22 @@ export default function SecretariaIntakePage() {
         <button onClick={load} className="border px-3 rounded">Atualizar</button>
       </div>
 
-      {error && <div className="bg-red-50 text-red-700 p-3 rounded">{error}</div>}
+      {error && (
+        <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">
+          {error}
+        </div>
+      )}
 
       <table className="w-full text-sm">
         <thead>
-          <tr>
-            <th className="text-left p-2">Nome</th>
-            <th className="text-left p-2">Telefone</th>
-            <th className="text-left p-2">CPF</th>
-            <th className="text-left p-2">RG</th>
-            <th className="text-left p-2">Nascimento</th>
-            <th className="text-left p-2">Criado</th>
-            <th className="text-left p-2">Ações</th>
+          <tr className="text-left">
+            <th className="p-2">Nome</th>
+            <th className="p-2">Telefone</th>
+            <th className="p-2">CPF</th>
+            <th className="p-2">RG</th>
+            <th className="p-2">Nascimento</th>
+            <th className="p-2">Criado</th>
+            <th className="p-2">Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -102,8 +108,10 @@ export default function SecretariaIntakePage() {
               <td className="p-2">
                 {it.data_nascimento ? new Date(it.data_nascimento).toLocaleDateString() : '—'}
               </td>
-              <td className="p-2">{new Date(it.created_at).toLocaleString()}</td>
-              <td className="p-2 flex gap-2">
+              <td className="p-2">
+                {it.created_at ? new Date(it.created_at).toLocaleString() : '—'}
+              </td>
+              <td className="p-2 flex flex-wrap gap-2">
                 <button
                   disabled={busy}
                   onClick={() => aprovar(it.id)}
@@ -118,11 +126,19 @@ export default function SecretariaIntakePage() {
                 >
                   Rejeitar
                 </button>
+
+                {/* Anexar documento + OCR (usa /api/upload-url e /api/ocr) */}
+                <IntakeOcrButton intakeId={it.id} onDone={load} />
               </td>
             </tr>
           ))}
+
           {!filtered.length && (
-            <tr><td colSpan={7} className="p-4 text-center text-gray-500">Nenhum pré-cadastro pendente</td></tr>
+            <tr>
+              <td colSpan={7} className="p-4 text-center text-gray-500">
+                Nenhum pré-cadastro pendente
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
