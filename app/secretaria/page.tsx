@@ -29,22 +29,23 @@ export default function SecretariaIntakePage() {
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<WhoAmI>({ userId: null, email: null, role: null });
 
-  async function getMe() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData.session?.user ?? null;
+async function getMe() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
-    let role: string | null = null;
-    if (user?.id) {
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-      role = prof?.role ?? null;
-    }
-
-    setMe({ userId: user?.id ?? null, email: user?.email ?? null, role });
+  let role: string | null = null;
+  if (user?.id) {
+    const { data: prof, error: profErr } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (profErr) console.warn('profiles select error', profErr.message);
+    role = prof?.role ?? null;
   }
+
+  setMe({ userId: user?.id ?? null, email: user?.email ?? null, role });
+}
 
   async function load() {
     setError(null);
@@ -146,7 +147,7 @@ export default function SecretariaIntakePage() {
         </div>
       )}
 
-      {me.role !== 'staff' && (
+      {me.role && me.role !== 'staff' && (
         <div className="bg-yellow-50 text-yellow-700 border border-yellow-200 p-3 rounded">
           Você não é <b>staff</b>. As ações de Aprovar/Rejeitar ficam desabilitadas.
         </div>
