@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-<LerDocumentoButton />
+import LerDocumentoButton from './_components/ler-documento-button';
 
 type Intake = {
   id: string;
@@ -30,7 +30,11 @@ export default function SecretariaIntakePage() {
     const user = session?.user ?? null;
     let role: string | null = null;
     if (user?.id) {
-      const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
       role = prof?.role ?? null;
     }
     setMe({ userId: user?.id ?? null, email: user?.email ?? null, role });
@@ -40,14 +44,20 @@ export default function SecretariaIntakePage() {
     setError(null);
     setLoading(true);
     const { data, error } = await supabase
+      // use a view se você já tem; senão, pode trocar para "pacientes_intake"
       .from('vw_pacientes_intake_ui')
       .select('id, nome, phone, cpf, rg, data_nascimento, created_at, status')
       .eq('status', 'pendente')
       .order('created_at', { ascending: false })
       .limit(200);
 
-    if (error) { setError(`Falha ao carregar pendentes: ${error.message}`); setItems([]); }
-    else { setItems(data || []); }
+    if (error) {
+      console.error('intake list error', error);
+      setError(`Falha ao carregar pendentes: ${error.message}`);
+      setItems([]);
+    } else {
+      setItems(data || []);
+    }
     setLoading(false);
   }
 
@@ -96,7 +106,10 @@ export default function SecretariaIntakePage() {
         <span>
           Usuário: {me.email || '—'} · Papel: <b>{me.role || '—'}</b>
         </span>
-          <LerDocumentoButton />
+        {/* Botão FIXO no header */}
+        <span className="ml-3 inline-flex">
+          <LerDocumentoButton onDone={load} />
+        </span>
       </div>
 
       <div className="flex gap-2">
@@ -111,11 +124,9 @@ export default function SecretariaIntakePage() {
         </button>
       </div>
 
-      {error && <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">{error}</div>}
-
-      {me.role && me.role !== 'staff' && (
-        <div className="bg-yellow-50 text-yellow-700 border border-yellow-200 p-3 rounded">
-          Você não é <b>staff</b>. As ações de Aprovar/Rejeitar ficam desabilitadas.
+      {error && (
+        <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">
+          {error}
         </div>
       )}
 
@@ -132,10 +143,14 @@ export default function SecretariaIntakePage() {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><td colSpan={7} className="p-4 text-center text-gray-500">Carregando…</td></tr>}
+          {loading && (
+            <tr><td colSpan={7} className="p-4 text-center text-gray-500">Carregando…</td></tr>
+          )}
+
           {!loading && filtered.length === 0 && (
             <tr><td colSpan={7} className="p-4 text-center text-gray-500">Nenhum pré-cadastro pendente</td></tr>
           )}
+
           {!loading && filtered.map((it) => (
             <tr key={it.id} className="border-t">
               <td className="p-2">{it.nome || '—'}</td>
