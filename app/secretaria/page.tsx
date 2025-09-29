@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import LerDocumentoButton from './_components/ler-documento-button'; // <-- botão novo
+<LerDocumentoButton />
 
 type Intake = {
   id: string;
