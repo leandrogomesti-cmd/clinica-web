@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import LerDocumentoButton from './_components/ler-documento-button';
+import LerDocumentoButton from './_components/ler-documento-button'; // <-- botão novo
 
 type Intake = {
   id: string;
@@ -15,7 +15,7 @@ type Intake = {
   status: string | null;
 };
 
-type WhoAmI = { userId: string | null; email: string | null; role: string | null; };
+type WhoAmI = { userId: string | null; email: string | null; role: string | null };
 
 export default function SecretariaIntakePage() {
   const [items, setItems] = useState<Intake[]>([]);
@@ -30,9 +30,7 @@ export default function SecretariaIntakePage() {
     const user = session?.user ?? null;
     let role: string | null = null;
     if (user?.id) {
-      const { data: prof, error: profErr } = await supabase
-        .from('profiles').select('role').eq('id', user.id).maybeSingle();
-      if (profErr) console.warn('profiles select error', profErr.message);
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
       role = prof?.role ?? null;
     }
     setMe({ userId: user?.id ?? null, email: user?.email ?? null, role });
@@ -45,16 +43,11 @@ export default function SecretariaIntakePage() {
       .from('vw_pacientes_intake_ui')
       .select('id, nome, phone, cpf, rg, data_nascimento, created_at, status')
       .eq('status', 'pendente')
-      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
       .limit(200);
 
-    if (error) {
-      console.error('intake list error', error);
-      setError(`Falha ao carregar pendentes: ${error.message}`);
-      setItems([]);
-    } else {
-      setItems(data || []);
-    }
+    if (error) { setError(`Falha ao carregar pendentes: ${error.message}`); setItems([]); }
+    else { setItems(data || []); }
     setLoading(false);
   }
 
@@ -105,8 +98,7 @@ export default function SecretariaIntakePage() {
         </span>
         {me.role === 'staff' && (
           <span className="ml-3 inline-flex">
-            {/* Botão fixo para ler documento (upload/OCR) */}
-            <LerDocumentoButton onDone={load} />
+            <LerDocumentoButton onDone={load} /> {/* <-- botão fixo */}
           </span>
         )}
       </div>
@@ -123,11 +115,7 @@ export default function SecretariaIntakePage() {
         </button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">{error}</div>}
 
       {me.role && me.role !== 'staff' && (
         <div className="bg-yellow-50 text-yellow-700 border border-yellow-200 p-3 rounded">
@@ -148,14 +136,10 @@ export default function SecretariaIntakePage() {
           </tr>
         </thead>
         <tbody>
-          {loading && (
-            <tr><td colSpan={7} className="p-4 text-center text-gray-500">Carregando…</td></tr>
-          )}
-
-          {!loading && !error && filtered.length === 0 && (
+          {loading && <tr><td colSpan={7} className="p-4 text-center text-gray-500">Carregando…</td></tr>}
+          {!loading && filtered.length === 0 && (
             <tr><td colSpan={7} className="p-4 text-center text-gray-500">Nenhum pré-cadastro pendente</td></tr>
           )}
-
           {!loading && filtered.map((it) => (
             <tr key={it.id} className="border-t">
               <td className="p-2">{it.nome || '—'}</td>
@@ -179,7 +163,6 @@ export default function SecretariaIntakePage() {
                 >
                   Rejeitar
                 </button>
-                {/* Botão de OCR por linha removido para ficar somente o fixo no topo */}
               </td>
             </tr>
           ))}
