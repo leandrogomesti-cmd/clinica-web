@@ -1,1 +1,20 @@
-'use client'; import { supabase } from '@/lib/supabase'; import { useEffect, useState } from 'react'; import Link from 'next/link'; export default function Dashboard(){const [user,setUser]=useState<any>(null); useEffect(()=>{supabase.auth.getUser().then(({data})=>setUser(data.user));},[]); if(!user) return <main className="p-6">Faça login...</main>; return(<main className="max-w-5xl mx-auto p-6 space-y-4"><h1 className="text-2xl font-semibold">Dashboard</h1><div className="grid grid-cols-1 md:grid-cols-3 gap-4"><Link href="/agenda" className="border p-4 rounded hover:bg-gray-50">Agenda</Link><Link href="/pacientes" className="border p-4 rounded hover:bg-gray-50">Pacientes</Link><Link href="/financeiro" className="border p-4 rounded hover:bg-gray-50">Financeiro</Link></div></main>);}
+'use client';
+import Link from 'next/link';
+
+
+export default function DashboardPage(){
+return (
+<main className="space-y-4">
+<h1 className="text-2xl font-semibold">Dashboard</h1>
+<div className="grid gap-3 md:grid-cols-3">
+<Link href="/agenda" className="rounded border p-4 hover:bg-gray-50">Agenda</Link>
+<Link href="/pacientes" className="rounded border p-4 hover:bg-gray-50">Pacientes</Link>
+<Link href="/financeiro" className="rounded border p-4 hover:bg-gray-50">Financeiro</Link>
+</div>
+<div className="grid gap-3 md:grid-cols-2">
+<Link href="/cadastro" className="rounded border p-4 hover:bg-gray-50">Cadastro de Pacientes</Link>
+<Link href="/secretaria" className="rounded border p-4 hover:bg-gray-50">Aprovar Auto Cadastro</Link>
+</div>
+</main>
+);
+}

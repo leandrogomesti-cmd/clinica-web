@@ -1,155 +1,81 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 
-type Patient = {
-  id: string;
-  full_name: string | null;
-  phone: string | null;
-  created_at: string;
-};
+if (search.trim()){
+const s = `%${search.trim()}%`;
+query = query.or(`full_name.ilike.${s},cpf.ilike.${s},rg.ilike.${s}`);
+}
 
-export default function PacientesPage() {
-  const [items, setItems] = useState<Patient[]>([]);
-  const [nome, setNome] = useState('');
-  const [telefone, setTelefone] = useState('');
-  const [buscaNome, setBuscaNome] = useState('');
-  const [buscaTelefone, setBuscaTelefone] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    setError(null);
-    const { data, error } = await supabase
-      .from('patients')
-      .select('id, full_name, phone, created_at')
-      .order('created_at', { ascending: false })
-      .limit(200);
+const { data, error } = await query;
+if (error) setError(error.message);
+setRows(data || []);
+setLoading(false);
+}
 
-    if (error) setError(error.message);
-    setItems(data || []);
-  }
 
-  useEffect(() => {
-    load();
-  }, []);
+useEffect(() => { load(''); }, []);
 
-  const filtered = useMemo(() => {
-    const n = buscaNome.trim().toLowerCase();
-    const t = buscaTelefone.trim().toLowerCase();
-    return items.filter((p) => {
-      const okN = !n || (p.full_name || '').toLowerCase().includes(n);
-      const okT = !t || (p.phone || '').toLowerCase().includes(t);
-      return okN && okT;
-    });
-  }, [items, buscaNome, buscaTelefone]);
 
-  async function add() {
-    if (!nome.trim()) return;
-    setBusy(true);
-    setError(null);
+const filtered = rows; // já filtrado no banco; manter para futura paginação
 
-    const payload = {
-      full_name: nome.trim(),
-      phone: telefone.trim() || null,
-    };
 
-    const { error } = await supabase.from('patients').insert(payload);
-    if (error) setError(error.message);
+return (
+<main className="space-y-4">
+<div className="flex items-center justify-between gap-2">
+<h1 className="text-xl font-semibold">Pacientes</h1>
+<Link href="/cadastro" className="rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700">Adicionar</Link>
+</div>
 
-    setNome('');
-    setTelefone('');
-    await load();
-    setBusy(false);
-  }
 
-  return (
-    <main className="max-w-5xl mx-auto p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Pacientes</h1>
+<div className="flex gap-2">
+<input
+value={q}
+onChange={(e)=>setQ(e.target.value)}
+onKeyDown={(e)=> e.key==='Enter' && load(q)}
+placeholder="Buscar por nome, CPF ou RG"
+className="w-full rounded border p-2"
+/>
+<button onClick={()=>load(q)} className="rounded border px-3 py-2 hover:bg-gray-100">Buscar</button>
+<button onClick={()=>{ setQ(''); load(''); }} className="rounded border px-3 py-2 hover:bg-gray-100">Limpar</button>
+</div>
 
-      {/* Filtros */}
-      <div className="flex gap-3">
-        <input
-          className="border rounded px-3 py-2 flex-1"
-          placeholder="Nome"
-          value={buscaNome}
-          onChange={(e) => setBuscaNome(e.target.value)}
-        />
-        <input
-          className="border rounded px-3 py-2 w-64"
-          placeholder="Telefone"
-          value={buscaTelefone}
-          onChange={(e) => setBuscaTelefone(e.target.value)}
-        />
-        <button
-          onClick={load}
-          className="border rounded px-4 py-2"
-          disabled={busy}
-        >
-          Atualizar
-        </button>
-      </div>
 
-      {/* Form adicionar */}
-      <div className="flex gap-3">
-        <input
-          className="border rounded px-3 py-2 flex-1"
-          placeholder="Nome"
-          value={nome}
-          onChange={(e) => setNome(e.target.value)}
-        />
-        <input
-          className="border rounded px-3 py-2 w-64"
-          placeholder="Telefone"
-          value={telefone}
-          onChange={(e) => setTelefone(e.target.value)}
-        />
-        <button
-          onClick={add}
-          className="bg-blue-600 text-white rounded px-4 py-2"
-          disabled={busy || !nome.trim()}
-        >
-          Adicionar
-        </button>
-      </div>
+{error && <p className="text-sm text-red-600">{error}</p>}
 
-      {error && (
-        <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded">
-          {error}
-        </div>
-      )}
 
-      {/* Tabela */}
-      <table className="w-full text-sm mt-2">
-        <thead>
-          <tr className="text-left">
-            <th className="p-2">Nome</th>
-            <th className="p-2">Telefone</th>
-            <th className="p-2">Criado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((p) => (
-            <tr key={p.id} className="border-t">
-              <td className="p-2">{p.full_name || '—'}</td>
-              <td className="p-2">{p.phone || '—'}</td>
-              <td className="p-2">
-                {p.created_at
-                  ? new Date(p.created_at).toLocaleString()
-                  : '—'}
-              </td>
-            </tr>
-          ))}
-          {!filtered.length && (
-            <tr>
-              <td colSpan={3} className="p-4 text-center text-gray-500">
-                Nenhum paciente encontrado
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </main>
-  );
+<table className="w-full border-collapse bg-white">
+<thead>
+<tr className="border-b bg-gray-50 text-left">
+<th className="p-2">Nome</th>
+<th className="p-2">Telefone</th>
+<th className="p-2">CPF</th>
+<th className="p-2">RG</th>
+<th className="p-2">Criado</th>
+<th className="p-2 w-24">Ações</th>
+</tr>
+</thead>
+<tbody>
+{filtered.map(p => (
+<tr key={p.id} className="border-b">
+<td className="p-2">{p.full_name || '—'}</td>
+<td className="p-2">{p.phone || '—'}</td>
+<td className="p-2">{p.cpf || '—'}</td>
+<td className="p-2">{p.rg || '—'}</td>
+<td className="p-2">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
+<td className="p-2">
+<Link href={`/pacientes/${p.id}/editar`} className="rounded border px-2 py-1 text-sm hover:bg-gray-100">Editar</Link>
+</td>
+</tr>
+))}
+{!filtered.length && !loading && (
+<tr><td colSpan={6} className="p-6 text-center text-gray-500">Nenhum paciente encontrado</td></tr>
+)}
+</tbody>
+</table>
+
+
+{loading && <p className="text-sm text-gray-500">Carregando…</p>}
+</main>
+);
 }
