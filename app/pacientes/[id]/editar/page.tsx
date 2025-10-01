@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
+const UFs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+
 type Patient = {
   id: string;
   full_name: string | null;
@@ -30,13 +32,12 @@ type Patient = {
   medicamentos_uso: string | null;
   doencas_cronicas: string | null;
   historico_cirurgico: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
 };
 
+const toDateInput = (d: string | null) => (d ? d.slice(0, 10) : '');
+
 export default function EditarPacientePage() {
-  const params = useParams();
-  const id = (params?.id as string) || '';
+  const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
   const [data, setData] = useState<Patient | null>(null);
@@ -46,24 +47,31 @@ export default function EditarPacientePage() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('id', id)
-        .single();
+      const { data, error } = await supabase.from('patients').select('*').eq('id', id).single();
       if (error) setErrorMsg(error.message);
       setData((data as Patient) ?? null);
     })();
   }, [id]);
 
+  const onlyDigits = (s?: string | null) => (s ? s.replace(/\D/g, '') : null);
+
   async function salvar() {
     if (!data) return;
     setSaving(true);
     setErrorMsg(null);
-    const { error } = await supabase
-      .from('patients')
-      .update({ ...data, updated_at: new Date().toISOString() })
-      .eq('id', id);
+
+    const patch = {
+      ...data,
+      birth_date: data.birth_date || null,
+      validade_carteirinha: data.validade_carteirinha || null,
+      cpf: onlyDigits(data.cpf),
+      phone: onlyDigits(data.phone),
+      cep: onlyDigits(data.cep),
+      state: data.state ? data.state.toUpperCase() : null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('patients').update(patch).eq('id', id);
     setSaving(false);
     if (error) setErrorMsg(error.message);
     else router.push('/pacientes');
@@ -94,18 +102,36 @@ export default function EditarPacientePage() {
         <div>
           <label className="mb-1 block text-sm">Data de nascimento</label>
           <input type="date" className="w-full rounded border px-3 py-2"
-            value={data.birth_date ?? ''} onChange={(e) => setData({ ...data, birth_date: e.target.value })}/>
+            value={toDateInput(data.birth_date)} onChange={(e) => setData({ ...data, birth_date: e.target.value })}/>
         </div>
+
         <div>
           <label className="mb-1 block text-sm">Sexo</label>
-          <input className="w-full rounded border px-3 py-2"
-            value={data.sexo ?? ''} onChange={(e) => setData({ ...data, sexo: e.target.value })}/>
+          <select className="w-full rounded border px-3 py-2"
+            value={data.sexo ?? 'NAO_INFORMADO'}
+            onChange={(e) => setData({ ...data, sexo: e.target.value })}>
+            <option value="NAO_INFORMADO">Não informado</option>
+            <option value="M">Masculino</option>
+            <option value="F">Feminino</option>
+            <option value="OUTRO">Outro</option>
+          </select>
         </div>
+
         <div>
           <label className="mb-1 block text-sm">Estado civil</label>
-          <input className="w-full rounded border px-3 py-2"
-            value={data.estado_civil ?? ''} onChange={(e) => setData({ ...data, estado_civil: e.target.value })}/>
+          <select className="w-full rounded border px-3 py-2"
+            value={data.estado_civil ?? 'NAO_INFORMADO'}
+            onChange={(e) => setData({ ...data, estado_civil: e.target.value })}>
+            <option value="NAO_INFORMADO">Não informado</option>
+            <option value="SOLTEIRO">Solteiro(a)</option>
+            <option value="CASADO">Casado(a)</option>
+            <option value="DIVORCIADO">Divorciado(a)</option>
+            <option value="VIUVO">Viúvo(a)</option>
+            <option value="UNIAO_ESTAVEL">União estável</option>
+            <option value="OUTRO">Outro</option>
+          </select>
         </div>
+
         <div>
           <label className="mb-1 block text-sm">CPF</label>
           <input className="w-full rounded border px-3 py-2"
@@ -123,7 +149,7 @@ export default function EditarPacientePage() {
         </div>
         <div>
           <label className="mb-1 block text-sm">Telefone (WhatsApp)</label>
-          <input className="w-full rounded border px-3 py-2"
+          <input className="w-full rounded border px-3 py-2" placeholder="(11) 9 9999-9999"
             value={data.phone ?? ''} onChange={(e) => setData({ ...data, phone: e.target.value })}/>
         </div>
         <div>
@@ -131,6 +157,7 @@ export default function EditarPacientePage() {
           <input type="email" className="w-full rounded border px-3 py-2"
             value={data.email ?? ''} onChange={(e) => setData({ ...data, email: e.target.value })}/>
         </div>
+
         <div>
           <label className="mb-1 block text-sm">CEP</label>
           <input className="w-full rounded border px-3 py-2"
@@ -163,9 +190,14 @@ export default function EditarPacientePage() {
         </div>
         <div>
           <label className="mb-1 block text-sm">Estado (UF)</label>
-          <input className="w-full rounded border px-3 py-2"
-            value={data.state ?? ''} onChange={(e) => setData({ ...data, state: e.target.value })}/>
+          <select className="w-full rounded border px-3 py-2"
+            value={data.state ?? ''}
+            onChange={(e) => setData({ ...data, state: e.target.value })}>
+            <option value="">Selecione</option>
+            {UFs.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+          </select>
         </div>
+
         <div>
           <label className="mb-1 block text-sm">Convênio</label>
           <input className="w-full rounded border px-3 py-2"
@@ -179,13 +211,14 @@ export default function EditarPacientePage() {
         <div>
           <label className="mb-1 block text-sm">Validade da carteirinha</label>
           <input type="date" className="w-full rounded border px-3 py-2"
-            value={data.validade_carteirinha ?? ''} onChange={(e) => setData({ ...data, validade_carteirinha: e.target.value })}/>
+            value={toDateInput(data.validade_carteirinha)} onChange={(e) => setData({ ...data, validade_carteirinha: e.target.value })}/>
         </div>
         <div>
           <label className="mb-1 block text-sm">Titular do plano</label>
           <input className="w-full rounded border px-3 py-2"
             value={data.titular_plano ?? ''} onChange={(e) => setData({ ...data, titular_plano: e.target.value })}/>
         </div>
+
         <div className="md:col-span-2">
           <label className="mb-1 block text-sm">Alergias</label>
           <textarea className="w-full rounded border px-3 py-2"
@@ -209,27 +242,18 @@ export default function EditarPacientePage() {
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={salvar}
-          disabled={saving}
-          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
+        <button onClick={salvar} disabled={saving}
+          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
           {saving ? 'Salvando…' : 'Salvar'}
         </button>
 
         {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)} className="rounded border px-4 py-2 hover:bg-gray-100">
-            Excluir
-          </button>
+          <button onClick={() => setConfirmDelete(true)} className="rounded border px-4 py-2 hover:bg-gray-100">Excluir</button>
         ) : (
           <div className="inline-flex items-center gap-2 rounded border px-3 py-2">
             <span>Você tem certeza que deseja excluir o paciente?</span>
-            <button onClick={excluir} className="rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700">
-              Sim
-            </button>
-            <button onClick={() => setConfirmDelete(false)} className="rounded border px-3 py-1.5 hover:bg-gray-100">
-              Não
-            </button>
+            <button onClick={excluir} className="rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700">Sim</button>
+            <button onClick={() => setConfirmDelete(false)} className="rounded border px-3 py-1.5 hover:bg-gray-100">Não</button>
           </div>
         )}
       </div>

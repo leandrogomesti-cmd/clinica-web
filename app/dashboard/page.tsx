@@ -1,20 +1,33 @@
 'use client';
 import Link from 'next/link';
 
+function Card({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="rounded border bg-white p-5 text-center text-base hover:bg-gray-50"
+    >
+      {children}
+    </Link>
+  );
+}
 
-export default function DashboardPage(){
-return (
-<main className="space-y-4">
-<h1 className="text-2xl font-semibold">Dashboard</h1>
-<div className="grid gap-3 md:grid-cols-3">
-<Link href="/agenda" className="rounded border p-4 hover:bg-gray-50">Agenda</Link>
-<Link href="/pacientes" className="rounded border p-4 hover:bg-gray-50">Pacientes</Link>
-<Link href="/financeiro" className="rounded border p-4 hover:bg-gray-50">Financeiro</Link>
-</div>
-<div className="grid gap-3 md:grid-cols-2">
-<Link href="/cadastro" className="rounded border p-4 hover:bg-gray-50">Cadastro de Pacientes</Link>
-<Link href="/secretaria" className="rounded border p-4 hover:bg-gray-50">Aprovar Auto Cadastro</Link>
-</div>
-</main>
-);
+export default function DashboardPage() {
+  return (
+    <main className="space-y-6">
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
+
+      {/* Linha 1 */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card href="/cadastro">Cadastro de Pacientes</Card>
+        <Card href="/autocadastro">Auto Cadastro</Card>
+        <Card href="/secretaria">Aprovar Auto Cadastro</Card>
+      </div>
+
+      {/* Linha 2 */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card href="/pacientes">Pacientes</Card>
+      </div>
+    </main>
+  );
 }
