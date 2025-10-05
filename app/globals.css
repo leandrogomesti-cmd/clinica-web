@@ -1,1 +1,14 @@
-@tailwind base;@tailwind components;@tailwind utilities;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+:root {
+color-scheme: light;
+}
+
+
+/* toques de azul suaves */
+.k-accent-bar {
+@apply h-1 bg-gradient-to-r from-blue-500/70 to-cyan-400/70 rounded-full;
+}

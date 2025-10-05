@@ -1,3 +1,4 @@
+'use client'
 // app/cadastro/_components/ler-documento-button.tsx
 'use client';
 import { useState } from 'react';
@@ -15,7 +16,7 @@ export default function LerDocumentoButtonPublic({ onDone }: { onDone?: () => vo
       const file = (e.currentTarget.elements.namedItem('file') as HTMLInputElement).files?.[0];
       if (!file) throw new Error('Selecione um arquivo');
 
-      // Upload para prefixo público:
+      // Upload para prefixo pÃºblico:
       const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
       const path = `public_intake/${crypto.randomUUID()}.${ext}`;
 
@@ -24,7 +25,7 @@ export default function LerDocumentoButtonPublic({ onDone }: { onDone?: () => vo
       });
       if (up.error) throw up.error;
 
-      // Assina URL no client (anon tem select só no prefixo).
+      // Assina URL no client (anon tem select sÃ³ no prefixo).
       const signed = await supabase.storage.from('patient_documents').createSignedUrl(path, 60 * 5);
       if (signed.error || !signed.data?.signedUrl) throw signed.error || new Error('Falha ao assinar URL');
 
@@ -35,7 +36,7 @@ export default function LerDocumentoButtonPublic({ onDone }: { onDone?: () => vo
       });
       const ocr = await res.json();
 
-      // Cria document + intake mínimos no banco (via client, respeitando RLS):
+      // Cria document + intake mÃ­nimos no banco (via client, respeitando RLS):
       const { data: doc, error: insDocErr } = await supabase
         .from('patient_documents')
         .insert({
@@ -59,9 +60,9 @@ export default function LerDocumentoButtonPublic({ onDone }: { onDone?: () => vo
           data_nascimento: parsed.data_nascimento || null,
           cpf: parsed.cpf || null,
           rg: parsed.rg || null,
-          telefone_whatsapp: null,  // o público pode preencher no formulário depois
+          telefone_whatsapp: null,  // o pÃºblico pode preencher no formulÃ¡rio depois
           status: 'pendente',
-          observacoes: ocr?.ok ? 'Criado via OCR público' : 'Criado via upload público (sem OCR)',
+          observacoes: ocr?.ok ? 'Criado via OCR pÃºblico' : 'Criado via upload pÃºblico (sem OCR)',
         })
         .select('id')
         .single();
@@ -92,7 +93,7 @@ export default function LerDocumentoButtonPublic({ onDone }: { onDone?: () => vo
             <div className="flex justify-end gap-2">
               <button type="button" className="border px-3 py-1 rounded" onClick={() => setOpen(false)}>Cancelar</button>
               <button type="submit" className="bg-blue-600 text-white px-3 py-1 rounded" disabled={busy}>
-                {busy ? 'Processando…' : 'Enviar'}
+                {busy ? 'Processandoâ€¦' : 'Enviar'}
               </button>
             </div>
           </form>

@@ -1,330 +1,75 @@
-"use client";
+// app/autocadastro/page.tsx
+'use client'
+import { useState } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { BrandLogo } from '@/components/brand-logo'
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { pacienteIntakeSchema, type PacienteIntakeInput } from "./schema";
-import { supabase } from "@/lib/supabase";
+export default function Page() {
+  const [loading, setLoading] = useState(false)
 
-const UFs = [
-  "AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT",
-  "PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"
-];
-
-export default function CadastroPage() {
-  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(null);
-  const [ocrOpen, setOcrOpen] = useState(false);
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const [ocrError, setOcrError] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    reset,
-    setValue,
-  } = useForm<PacienteIntakeInput>({
-    resolver: zodResolver(pacienteIntakeSchema),
-    defaultValues: {
-      sexo: "NAO_INFORMADO",
-      estado_civil: "NAO_INFORMADO",
-    },
-  });
-
-  const onSubmit = async (data: PacienteIntakeInput) => {
-    setStatus(null);
-    try {
-      const onlyDigits = (s?: string) => (s ? s.replace(/\D/g, "") : s);
-
-      const payload = {
-        ...data,
-        telefone_whatsapp: onlyDigits(data.telefone_whatsapp),
-        telefone_fixo: onlyDigits(data.telefone_fixo),
-        cpf: data.cpf ? data.cpf.replace(/\D/g, "") : null,
-        estado: data.estado?.toUpperCase() ?? null,
-        data_nascimento: data.data_nascimento || null,
-        validade_carteirinha: data.validade_carteirinha || null,
-      };
-
-      const { error } = await supabase.from("pacientes_intake").insert(payload);
-      if (error) throw error;
-
-      setStatus({ ok: true, msg: "Cadastro enviado com sucesso! Aguarde confirmação." });
-      reset();
-    } catch (e: any) {
-      setStatus({ ok: false, msg: e.message || "Falha ao enviar cadastro." });
-    }
-  };
-
-  async function handleOCRSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setOcrError(null);
-    setOcrBusy(true);
-
-    try {
-      const file = (e.currentTarget.elements.namedItem("file") as HTMLInputElement).files?.[0];
-      if (!file) throw new Error("Selecione um arquivo de imagem");
-
-      // Subir para prefixo público com RLS segura (public_intake/)
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const path = `public_intake/${crypto.randomUUID()}.${ext}`;
-
-      const up = await supabase.storage.from("patient_documents").upload(path, file, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
-      if (up.error) throw up.error;
-
-      const signed = await supabase.storage
-        .from("patient_documents")
-        .createSignedUrl(path, 60 * 5);
-      if (signed.error || !signed.data?.signedUrl) {
-        throw signed.error || new Error("Falha ao assinar URL");
-      }
-
-      // Chama OCR e pré-preenche o formulário
-      const resp = await fetch("/api/ocr/vision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: signed.data.signedUrl }),
-      });
-      const data = await resp.json();
-
-      if (!resp.ok || !data?.ok) {
-        // Exibe erro detalhado quando houver (status/body)
-        const det = data?.error
-          ? `${data.error}${data.status ? ` (${data.status})` : ""}`
-          : "Falha no OCR";
-        throw new Error(det);
-      }
-
-      const parsed = data.parsed || {};
-      if (parsed.nome) setValue("nome", parsed.nome, { shouldDirty: true });
-      if (parsed.cpf) setValue("cpf", parsed.cpf, { shouldDirty: true });
-      if (parsed.rg) setValue("rg", parsed.rg, { shouldDirty: true });
-      if (parsed.data_nascimento)
-        setValue("data_nascimento", parsed.data_nascimento, { shouldDirty: true });
-
-      setOcrOpen(false);
-    } catch (err: any) {
-      setOcrError(err?.message || "Não foi possível ler o documento.");
-    } finally {
-      setOcrBusy(false);
-    }
+  async function onSubmit(formData: FormData) {
+    setLoading(true)
+    const payload = Object.fromEntries(formData) as any
+    const { error } = await supabase.from('pacientes_intake').insert(payload)
+    setLoading(false)
+    if (error) alert(error.message)
+    else alert('Cadastro enviado!')
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      {/* Header com botão de OCR à direita */}
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Autocadastro de Paciente</h1>
-          <p className="text-sm text-gray-600">
-            Preencha seus dados. Suas informações serão analisadas pela clínica.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setOcrOpen(true)}
-          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-        >
-          Ler documento
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        {/* Dados pessoais */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm">Nome completo *</label>
-            <input className="w-full rounded border px-3 py-2" {...register("nome")} />
-            {errors.nome && <p className="text-sm text-red-600">{errors.nome.message}</p>}
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Data de nascimento</label>
-            <input type="date" className="w-full rounded border px-3 py-2" {...register("data_nascimento")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Sexo</label>
-            <select className="w-full rounded border px-3 py-2" {...register("sexo")}>
-              <option value="NAO_INFORMADO">Não informado</option>
-              <option value="M">Masculino</option>
-              <option value="F">Feminino</option>
-              <option value="OUTRO">Outro</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Estado civil</label>
-            <select className="w-full rounded border px-3 py-2" {...register("estado_civil")}>
-              <option value="NAO_INFORMADO">Não informado</option>
-              <option value="SOLTEIRO">Solteiro(a)</option>
-              <option value="CASADO">Casado(a)</option>
-              <option value="DIVORCIADO">Divorciado(a)</option>
-              <option value="VIUVO">Viúvo(a)</option>
-              <option value="UNIAO_ESTAVEL">União estável</option>
-              <option value="OUTRO">Outro</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">CPF</label>
-            <input className="w-full rounded border px-3 py-2" placeholder="Somente números" {...register("cpf")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">RG</label>
-            <input className="w-full rounded border px-3 py-2" {...register("rg")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Profissão</label>
-            <input className="w-full rounded border px-3 py-2" {...register("profissao")} />
-          </div>
-        </section>
-
-        {/* Contato */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm">Telefone (WhatsApp) *</label>
-            <input
-              className="w-full rounded border px-3 py-2"
-              placeholder="(11) 9 9999-9999"
-              {...register("telefone_whatsapp")}
-            />
-            {errors.telefone_whatsapp && (
-              <p className="text-sm text-red-600">{errors.telefone_whatsapp.message}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Telefone fixo</label>
-            <input className="w-full rounded border px-3 py-2" {...register("telefone_fixo")} />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-sm">E-mail</label>
-            <input type="email" className="w-full rounded border px-3 py-2" {...register("email")} />
-            {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
-          </div>
-        </section>
-
-        {/* Endereço */}
-        <section>
-          <h2 className="mb-2 text-lg font-medium">Endereço</h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">CEP</label>
-              <input className="w-full rounded border px-3 py-2" {...register("cep")} />
+    <div className="max-w-3xl mx-auto space-y-4">
+      <BrandLogo />
+      <div className="k-accent-bar" />
+      <Card>
+        <CardHeader><CardTitle>Autocadastro</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <form action={onSubmit} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input name="full_name" placeholder="Nome completo" className="col-span-2" required />
+              <Input name="cpf" placeholder="CPF" required />
+              <Input name="birth_date" type="date" placeholder="Data de Nascimento" />
+              <Select name="marital_status">
+                <SelectTrigger><SelectValue placeholder="Estado civil"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="solteiro">Solteiro(a)</SelectItem>
+                  <SelectItem value="casado">Casado(a)</SelectItem>
+                  <SelectItem value="divorciado">Divorciado(a)</SelectItem>
+                  <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                  <SelectItem value="uniao_estavel">União estável</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select name="sex">
+                <SelectTrigger><SelectValue placeholder="Sexo"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="feminino">Feminino</SelectItem>
+                  <SelectItem value="masculino">Masculino</SelectItem>
+                  <SelectItem value="outro">Outro</SelectItem>
+                  <SelectItem value="nao_informar">Prefiro não informar</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input name="phone" placeholder="Telefone" />
+              <Input name="email" placeholder="Email (opcional)" className="col-span-2" />
+              <Input name="profession" placeholder="Profissão" className="col-span-2" />
             </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Logradouro</label>
-              <input className="w-full rounded border px-3 py-2" {...register("logradouro")} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input name="cep" placeholder="CEP" />
+              <Input name="uf" placeholder="UF" />
+              <Input name="city" placeholder="Cidade" />
+              <Input name="district" placeholder="Bairro" />
+              <Input name="address" placeholder="Logradouro" className="col-span-2" />
+              <Input name="address_number" placeholder="Número" />
+              <Input name="address_complement" placeholder="Complemento" />
             </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Número</label>
-              <input className="w-full rounded border px-3 py-2" {...register("numero")} />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Complemento</label>
-              <input className="w-full rounded border px-3 py-2" {...register("complemento")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Bairro</label>
-              <input className="w-full rounded border px-3 py-2" {...register("bairro")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Cidade</label>
-              <input className="w-full rounded border px-3 py-2" {...register("cidade")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Estado (UF)</label>
-              <select className="w-full rounded border px-3 py-2" {...register("estado")}>
-                <option value="">Selecione</option>
-                {UFs.map((uf) => (
-                  <option key={uf} value={uf}>
-                    {uf}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* Convênio */}
-        <section>
-          <h2 className="mb-2 text-lg font-medium">Convênio / Plano de saúde (opcional)</h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Convênio</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                placeholder="Ex.: Unimed, Amil, ou PARTICULAR"
-                {...register("convenio")}
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Número da carteirinha</label>
-              <input className="w-full rounded border px-3 py-2" {...register("numero_carteirinha")} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Validade da carteirinha</label>
-              <input type="date" className="w-full rounded border px-3 py-2" {...register("validade_carteirinha")} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Titular do plano</label>
-              <input className="w-full rounded border px-3 py-2" {...register("titular_plano")} />
-            </div>
-          </div>
-        </section>
-
-        {/* Botão enviar */}
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="rounded bg-blue-600 px-5 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSubmitting ? "Enviando..." : "Enviar cadastro"}
-          </button>
-        </div>
-
-        {status && (
-          <p className={`mt-3 text-sm ${status.ok ? "text-green-700" : "text-red-700"}`}>
-            {status.msg}
-          </p>
-        )}
-      </form>
-
-      {/* Modal simples de OCR */}
-      {ocrOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <form
-            onSubmit={handleOCRSubmit}
-            className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg"
-          >
-            <h3 className="text-lg font-semibold">Enviar RG/CPF/CNH</h3>
-            <input type="file" name="file" accept="image/*" required />
-            {ocrError && <p className="text-sm text-red-600">{ocrError}</p>}
-            <div className="flex justify-end gap-2">
-              <button type="button" className="rounded border px-3 py-1" onClick={() => setOcrOpen(false)}>
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50"
-                disabled={ocrBusy}
-              >
-                {ocrBusy ? "Processando…" : "Ler"}
-              </button>
-            </div>
+            <Textarea name="notes" placeholder="Observações" />
+            <Button disabled={loading}>{loading ? 'Enviando…' : 'Enviar'}</Button>
           </form>
-        </div>
-      )}
-    </main>
-  );
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
