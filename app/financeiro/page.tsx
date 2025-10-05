@@ -1,1 +1,21 @@
-'use client'; import { supabase } from '@/lib/supabase'; import { useEffect, useState } from 'react'; export default function Financeiro(){const [rows,setRows]=useState<any[]>([]); useEffect(()=>{supabase.from('v_financeiro_resumo').select('*').then(({data})=>setRows(data||[]));},[]); return(<main className="max-w-4xl mx-auto p-6"><h1 className="text-xl font-semibold mb-4">Financeiro</h1><table className="w-full text-sm"><thead><tr><th className="p-2 text-left">Dia</th><th className="p-2 text-left">Recebido</th><th className="p-2 text-left">A receber</th><th className="p-2 text-left">Consultas</th></tr></thead><tbody>{rows.map(r=>(<tr key={r.dia} className="border-t"><td className="p-2">{new Date(r.dia).toLocaleDateString()}</td><td className="p-2">R$ {(r.total_pago_cents/100).toFixed(2)}</td><td className="p-2">R$ {(r.total_a_receber_cents/100).toFixed(2)}</td><td className="p-2">{r.total_consultas}</td></tr>))}</tbody></table></main>);}
+import { requireRole } from '@/lib/auth/requireRole'
+import { createSupabaseServer } from '@/lib/supabase/server'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
+export default async function Page() {
+  await requireRole(['staff','admin'])
+  const supabase = createSupabaseServer()
+  const { data: resumo } = await supabase
+    .from('v_financeiro_resumo')
+    .select('mes, total_cents')
+    .order('mes', { ascending: true })
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Financeiro</CardTitle></CardHeader>
+      <CardContent>
+        <pre className="text-xs">{JSON.stringify(resumo, null, 2)}</pre>
+      </CardContent>
+    </Card>
+  )
+}

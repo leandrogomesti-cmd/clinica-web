@@ -1,1 +1,45 @@
-'use client'; import { supabase } from '@/lib/supabase'; import { useState } from 'react'; import { useRouter } from 'next/navigation'; export default function Login(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState<string|null>(null);const router=useRouter(); async function onSubmit(e:React.FormEvent){e.preventDefault();setError(null);const {error}=await supabase.auth.signInWithPassword({email,password}); if(error){setError(error.message);return;} router.replace('/dashboard');} return(<main className="max-w-md mx-auto p-6"><h1 className="text-xl font-semibold mb-4">Login</h1><form onSubmit={onSubmit} className="space-y-3"><input className="w-full border p-2 rounded" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} /><input className="w-full border p-2 rounded" placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} />{error && <div className="text-red-600 text-sm">{error}</div>}<button className="w-full bg-blue-600 text-white py-2 rounded">Entrar</button></form></main>);}
+'use client'
+import { useState } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BrandLogo } from '@/components/brand-logo'
+
+export default function Page() {
+  const [loading, setLoading] = useState(false)
+
+  async function onSubmit(formData: FormData) {
+    setLoading(true)
+    const email = String(formData.get('email') || '')
+    const password = String(formData.get('password') || '')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    setLoading(false)
+    if (error) alert(error.message)
+    else window.location.href = '/secretaria'
+  }
+
+  return (
+    <div className="max-w-md mx-auto space-y-4">
+      <BrandLogo />
+      <div className="k-accent-bar" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Entrar no painel</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <form action={onSubmit} className="space-y-3">
+            <Input name="email" type="email" placeholder="Email" required />
+            <Input name="password" type="password" placeholder="Senha" required />
+            <Button className="w-full" disabled={loading}>
+              {loading ? 'Entrando…' : 'Entrar'}
+            </Button>
+          </form>
+          <div className="text-sm text-muted-foreground">
+            ou <a className="underline" href="/autocadastro">autocadastrar paciente</a>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
