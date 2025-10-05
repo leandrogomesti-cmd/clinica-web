@@ -1,106 +1,100 @@
 // app/secretaria/agenda/page.tsx
-import { createSupabaseServer } from "@/lib/supabase/server";
-import { createSlot, deleteSlot } from "./actions";
-import { redirect } from "next/navigation";
+import { requireRole } from '@/lib/auth/requireRole'
+import { createSupabaseServer } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 
-export const dynamic = "force-dynamic";
+// Tipagem do retorno com relacionamento 1:1 (profiles via FK doctors_profile_id_fkey)
+type DoctorRow = {
+  id: string
+  profiles: { full_name: string } | null
+}
 
 export default async function Page() {
-  const supabase = createSupabaseServer();
+  await requireRole(['staff', 'doctor', 'admin'])
+  const supabase = createSupabaseServer()
 
-  // Auth + role check
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
-  if (!profile || !["staff","admin"].includes(profile.role)) redirect("/");
-
-  // Dados
+  // Médicos com nome vindo de profiles (1:1 pelo FK)
   const { data: doctors } = await supabase
-    .from("doctors")
-    .select("id, profile_id, profiles:profile_id(full_name)")
-    .order("id", { ascending: true });
+    .from('doctors')
+    .select('id, profiles:profiles!doctors_profile_id_fkey(full_name)')
+    .returns<DoctorRow[]>()
+    .order('id', { ascending: true })
 
-  const now = new Date();
-  const fromIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const toIso   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14).toISOString();
+  // Agendamentos simples para listar (ajuste campos conforme seu schema)
+  const { data: appts } = await supabase
+    .from('appointments')
+    .select('id, starts_at, ends_at, doctor_id, patient_id, notes')
+    .order('starts_at', { ascending: true })
 
-  const { data: slots } = await supabase
-    .from("appointment_slots")
-    .select("id, doctor_id, starts_at, ends_at, capacity, doctors!inner(profile_id, profiles:profile_id(full_name))")
-    .gte("starts_at", fromIso)
-    .lte("starts_at", toIso)
-    .order("starts_at", { ascending: true });
+  // Server Action: criar agendamento rápido
+  async function criarAgendamento(formData: FormData) {
+    'use server'
+    await requireRole(['staff', 'doctor', 'admin'])
+    const supa = createSupabaseServer()
 
-  function dtLocal(iso?: string) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    // yyyy-MM-ddTHH:mm para value de datetime-local
-    const pad = (n:number)=>String(n).padStart(2,"0");
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const doctor_id = String(formData.get('doctor_id') || '')
+    const starts_at = String(formData.get('starts_at') || '')
+    const ends_at = String(formData.get('ends_at') || '')
+    const notes = String(formData.get('notes') || '')
+
+    if (!doctor_id || !starts_at || !ends_at) return
+
+    const { error } = await supa.from('appointments').insert({
+      doctor_id,
+      starts_at,
+      ends_at,
+      notes,
+    })
+    if (error) throw error
+
+    revalidatePath('/secretaria/agenda')
   }
 
   return (
-    <main className="p-6 space-y-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Agenda — criar slots</h1>
-        <p className="text-sm opacity-70">Olá, {profile.full_name ?? "Secretaria"}</p>
-      </header>
+    <div className="space-y-4">
+      <div className="k-accent-bar" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Agenda — Secretaria</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Formulário simples para criar agendamento */}
+          <form action={criarAgendamento} className="grid gap-3 md:grid-cols-4">
+            <div className="md:col-span-1">
+              <Select name="doctor_id">
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o médico" />
+                </SelectTrigger>
+                <SelectContent>
+                  {doctors?.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.profiles?.full_name ?? d.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-      {/* Form criar slot */}
-      <form action={createSlot} className="grid gap-3 max-w-xl rounded-2xl p-4 border">
-        <div className="grid gap-1">
-          <label className="text-sm">Médico</label>
-          <select name="doctor_id" required className="border rounded-lg p-2">
-            <option value="">Selecione...</option>
-            {doctors?.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.profiles?.full_name ?? d.id}
-              </option>
-            ))}
-          </select>
-        </div>
+            <Input name="starts_at" type="datetime-local" className="md:col-span-1" />
+            <Input name="ends_at" type="datetime-local" className="md:col-span-1" />
+            <Input name="notes" placeholder="Observações" className="md:col-span-1" />
 
-        <div className="grid gap-1 md:grid-cols-2">
-          <div className="grid gap-1">
-            <label className="text-sm">Início</label>
-            <input type="datetime-local" name="starts_at" required className="border rounded-lg p-2" />
+            <div className="md:col-span-4">
+              <Button type="submit">Criar agendamento</Button>
+            </div>
+          </form>
+
+          {/* Lista de próximos agendamentos (temporário) */}
+          <div className="rounded-xl border p-3">
+            <div className="text-sm font-medium mb-2">Próximos agendamentos</div>
+            <pre className="text-xs">{JSON.stringify(appts, null, 2)}</pre>
           </div>
-          <div className="grid gap-1">
-            <label className="text-sm">Fim</label>
-            <input type="datetime-local" name="ends_at" required className="border rounded-lg p-2" />
-          </div>
-        </div>
-
-        <div className="grid gap-1 md:max-w-32">
-          <label className="text-sm">Capacidade</label>
-          <input type="number" name="capacity" min={1} max={10} defaultValue={1} className="border rounded-lg p-2" />
-        </div>
-
-        <button className="rounded-xl px-4 py-2 bg-black text-white w-fit">Criar slot</button>
-        <p className="text-xs opacity-60">Evita sobreposição automaticamente por médico.</p>
-      </form>
-
-      {/* Lista de slots próximos 14 dias */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Próximos 14 dias</h2>
-        <ul className="divide-y rounded-2xl border">
-          {(slots ?? []).map((s) => (
-            <li key={s.id} className="flex items-center justify-between p-3">
-              <div className="space-y-1">
-                <div className="font-medium">{s.doctors?.profiles?.full_name ?? "Médico"}</div>
-                <div className="text-sm opacity-75">
-                  {new Date(s.starts_at).toLocaleString()} → {new Date(s.ends_at).toLocaleString()} • cap {s.capacity}
-                </div>
-              </div>
-              <form action={deleteSlot}>
-                <input type="hidden" name="id" value={s.id} />
-                <button className="text-red-600 hover:underline">Excluir</button>
-              </form>
-            </li>
-          ))}
-          {(!slots || slots.length === 0) && <li className="p-3 text-sm opacity-70">Sem slots no período.</li>}
-        </ul>
-      </section>
-    </main>
-  );
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
