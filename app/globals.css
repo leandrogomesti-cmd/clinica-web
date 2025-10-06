@@ -3,8 +3,12 @@
 @tailwind utilities;
 
 
-:root { color-scheme: light; }
+:root {
+color-scheme: light;
+}
 
 
-/* barra de acento azul (discreta) */
-.k-accent-bar { @apply h-1 bg-gradient-to-r from-blue-500/70 to-cyan-400/70 rounded-full; }
+/* toques de azul suaves */
+.k-accent-bar {
+@apply h-1 bg-gradient-to-r from-blue-500/70 to-cyan-400/70 rounded-full;
+}
