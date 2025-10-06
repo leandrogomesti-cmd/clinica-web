@@ -17,7 +17,7 @@ export function createSupabaseServer() {
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+          cookieStore.set({ name, value: "", ...options });
         },
       },
     }

@@ -1,84 +1,136 @@
 // app/secretaria/page.tsx
+import AppFrame from "@/components/app-frame";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Button,
+  Input,
+  Select,
+  Table,
+  THead,
+  TH,
+  TRow,
+  TD,
+} from "@/components/ui/primitives";
 import requireRole from "@/lib/auth/requireRole";
 import { revalidatePath } from "next/cache";
 
-export const dynamic = "force-dynamic";
+type IntakeRow = {
+  id: string;
+  created_at: string | null;
+  nome: string | null;
+  cpf: string | null;
+  phone?: string | null;     // alguns bancos usam 'phone'
+  telefone?: string | null;  // outros usam 'telefone'
+};
 
 async function promover(id: string) {
   "use server";
   const { supabase } = await requireRole(["staff", "admin"]);
-  const { error } = await supabase.rpc("promover_intake_paciente", {
-    intake_id: id,
-  });
-  if (error) {
-    console.error(error);
-  }
+  await supabase.rpc("promover_intake_paciente", { intake_id: id });
   revalidatePath("/secretaria");
 }
 
-export default async function SecretariaPage() {
+async function rejeitar(id: string) {
+  "use server";
+  const { supabase } = await requireRole(["staff", "admin"]);
+  await supabase.from("pacientes_intake").delete().eq("id", id);
+  revalidatePath("/secretaria");
+}
+
+export default async function Page() {
   const { supabase } = await requireRole(["staff", "admin"]);
 
-  const { data, error } = await supabase
+  // leitura segura (data: T[] | null) -> garante array
+  const { data: rowsRaw, error } = await supabase
     .from("pacientes_intake")
-    .select("*")
+    .select("id, created_at, nome, cpf, phone, telefone")
     .order("created_at", { ascending: false });
 
-  if (error) console.error(error);
+  const rows: IntakeRow[] = rowsRaw ?? [];
 
-  const rows = data ?? [];
+  const mask = (cpf: string | null | undefined) =>
+    !cpf ? "—" : `***.***.***-${cpf.replace(/\D/g, "").slice(-2)}`;
 
   return (
-    <>
-      <h1 className="text-2xl font-semibold mb-4">Aprovação</h1>
-      <p className="mb-3 text-sm text-muted-foreground">
-        {rows.length} registros
-      </p>
+    <AppFrame>
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <div>
+            <CardTitle>Pendências de Intake</CardTitle>
+            <p className="text-sm text-gray-500">
+              Aprove ou rejeite cadastros enviados
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Input placeholder="Buscar…" className="w-[220px]" />
+            <Select className="w-[150px]">
+              <option>Todas</option>
+              <option>Hoje</option>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-xl border overflow-hidden">
+            <Table>
+              <THead>
+                <TRow>
+                  <TH>Criado</TH>
+                  <TH>Nome</TH>
+                  <TH>CPF</TH>
+                  <TH>Telefone</TH>
+                  <TH className="text-right">Ações</TH>
+                </TRow>
+              </THead>
+              <tbody>
+                {rows.map((r) => (
+                  <TRow key={r.id}>
+                    <TD>
+                      {r.created_at
+                        ? new Date(r.created_at).toLocaleString("pt-BR")
+                        : "—"}
+                    </TD>
+                    <TD>{r.nome || "—"}</TD>
+                    <TD>{mask(r.cpf)}</TD>
+                    <TD>{r.phone ?? r.telefone ?? "—"}</TD>
+                    <TD className="text-right space-x-2">
+                      <form
+                        action={promover.bind(null, r.id)}
+                        className="inline"
+                      >
+                        <Button size="sm">Aprovar</Button>
+                      </form>
+                      <form
+                        action={rejeitar.bind(null, r.id)}
+                        className="inline"
+                      >
+                        <Button size="sm" variant="outline">
+                          Rejeitar
+                        </Button>
+                      </form>
+                    </TD>
+                  </TRow>
+                ))}
+                {rows.length === 0 && (
+                  <TRow>
+                    <TD className="text-center text-gray-500" colSpan={5}>
+                      Sem registros
+                    </TD>
+                  </TRow>
+                )}
+              </tbody>
+            </Table>
+          </div>
 
-      <div className="overflow-x-auto rounded-2xl border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="p-3 text-left">Nome</th>
-              <th className="p-3 text-left">CPF</th>
-              <th className="p-3 text-left">Telefone</th>
-              <th className="p-3 text-left">Criado em</th>
-              <th className="p-3 text-left">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r: any) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-3">{r.full_name ?? "—"}</td>
-                <td className="p-3">{r.cpf ?? "—"}</td>
-                <td className="p-3">{r.phone ?? "—"}</td>
-                <td className="p-3">
-                  {r.created_at
-                    ? new Date(r.created_at).toLocaleString()
-                    : "—"}
-                </td>
-                <td className="p-3">
-                  <form action={promover.bind(null, r.id)}>
-                    <button
-                      type="submit"
-                      className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:opacity-90"
-                    >
-                      Promover
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td className="p-4 text-muted-foreground" colSpan={5}>
-                  Sem solicitações.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </>
+          {error && (
+            <div className="mt-3 text-xs text-amber-700">
+              Erro ao ler <code>pacientes_intake</code>: {error.message}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </AppFrame>
   );
 }

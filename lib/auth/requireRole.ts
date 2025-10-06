@@ -1,44 +1,44 @@
 // lib/auth/requireRole.ts
 import { redirect } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
 import { createSupabaseServer } from "@/lib/supabase/server";
 
-export type AppRole = "staff" | "doctor" | "admin";
+export type Role = "staff" | "doctor" | "admin";
 
 /**
- * Garante que o usuário esteja autenticado e com uma das roles permitidas.
- * Redireciona para /login se não cumprir os requisitos.
- * Retorna { user, profile, supabase } para uso na página/ação.
+ * Garante que o usuário está autenticado e possui um dos perfis permitidos.
+ * Retorna o supabase server client, o user e o role.
  */
-export default async function requireRole(
-  roles: AppRole[] = ["staff", "doctor", "admin"]
-): Promise<{
-  user: User;
-  profile: { id: string; role: string | null; full_name: string | null } | null;
-  supabase: ReturnType<typeof createSupabaseServer>;
-}> {
+async function requireRole(allowed: Role[]) {
   const supabase = createSupabaseServer();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (!user) {
+    redirect("/login");
+  }
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id, role, full_name")
+    .select("role")
     .eq("id", user.id)
-    .maybeSingle();
+    .single();
 
   if (error) {
-    console.error(error);
+    // se der erro lendo o perfil, trata como não autorizado
     redirect("/login");
   }
 
-  if (!profile || !profile.role || !roles.includes(profile.role as AppRole)) {
+  const role = (profile?.role ?? null) as Role | null;
+
+  if (!role || !allowed.includes(role)) {
     redirect("/login");
   }
 
-  return { user: user!, profile, supabase };
+  return { supabase, user, role };
 }
+
+// ✅ Exporta dos dois jeitos para compatibilidade
+export { requireRole };
+export default requireRole;

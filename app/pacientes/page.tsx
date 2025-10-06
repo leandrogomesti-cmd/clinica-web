@@ -1,57 +1,127 @@
 // app/pacientes/page.tsx
+import AppFrame from "@/components/app-frame";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Button,
+  Input,
+  Select,
+  Table,
+  THead,
+  TH,
+  TRow,
+  TD,
+} from "@/components/ui/primitives";
 import requireRole from "@/lib/auth/requireRole";
 
-export const dynamic = "force-dynamic";
+type Patient = {
+  id: string;
+  full_name: string | null;
+  cpf: string | null;
+  phone: string | null;
+  email: string | null;
+  created_at: string | null;
+};
 
-export default async function PacientesPage() {
+function maskCpf(cpf: string | null) {
+  if (!cpf) return "—";
+  const s = cpf.replace(/\D/g, "");
+  if (s.length < 11) return "—";
+  return `***.***.***-${s.slice(-2)}`;
+}
+
+export default async function Page() {
   const { supabase } = await requireRole(["staff", "doctor", "admin"]);
 
-  const { data, error } = await supabase
+  const { data: patientsRaw, error } = await supabase
     .from("patients")
-    .select("id, full_name, phone, cpf, rg, created_at")
+    .select("id, full_name, cpf, phone, email, created_at")
     .order("created_at", { ascending: false });
 
-  if (error) console.error(error);
-  const rows = data ?? [];
+  // ✅ garante array (evita 'possibly null')
+  const patients: Patient[] = patientsRaw ?? [];
+  const first: Patient | null = patients[0] ?? null;
 
   return (
-    <>
-      <h1 className="text-2xl font-semibold mb-4">Pacientes</h1>
-      <div className="overflow-x-auto rounded-2xl border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="p-3 text-left">Nome</th>
-              <th className="p-3 text-left">Telefone</th>
-              <th className="p-3 text-left">CPF</th>
-              <th className="p-3 text-left">RG</th>
-              <th className="p-3 text-left">Criado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-3">{r.full_name ?? "—"}</td>
-                <td className="p-3">{r.phone ?? "—"}</td>
-                <td className="p-3">{r.cpf ?? "—"}</td>
-                <td className="p-3">{(r as any).rg ?? "—"}</td>
-                <td className="p-3">
-                  {r.created_at
-                    ? new Date(r.created_at).toLocaleString()
-                    : "—"}
-                </td>
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td className="p-4 text-muted-foreground" colSpan={5}>
-                  Nenhum paciente.
-                </td>
-              </tr>
+    <AppFrame>
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <div>
+            <CardTitle>Pacientes</CardTitle>
+            <p className="text-sm text-gray-500">
+              Lista com edição lateral e anexos
+            </p>
+          </div>
+          <div className="flex gap-2 items-center">
+            <Input placeholder="Buscar paciente" className="w-[220px]" />
+            <Select className="w-[150px]">
+              <option>Todos</option>
+              <option>Novos</option>
+            </Select>
+          </div>
+        </CardHeader>
+
+        <CardContent className="grid lg:grid-cols-[1fr_340px] gap-4">
+          <div className="rounded-xl border overflow-hidden">
+            <Table>
+              <THead>
+                <TRow>
+                  <TH>Nome</TH>
+                  <TH>CPF</TH>
+                  <TH>Telefone</TH>
+                  <TH>Email</TH>
+                  <TH />
+                </TRow>
+              </THead>
+              <tbody>
+                {patients.map((r) => (
+                  <TRow key={r.id}>
+                    <TD>{r.full_name || "—"}</TD>
+                    <TD>{maskCpf(r.cpf)}</TD>
+                    <TD>{r.phone || "—"}</TD>
+                    <TD>{r.email || "—"}</TD>
+                    <TD className="text-right">
+                      <Button size="sm" variant="secondary">
+                        Editar
+                      </Button>
+                    </TD>
+                  </TRow>
+                ))}
+                {patients.length === 0 && (
+                  <TRow>
+                    <TD className="text-center text-gray-500" colSpan={5}>
+                      Sem dados.
+                    </TD>
+                  </TRow>
+                )}
+              </tbody>
+            </Table>
+          </div>
+
+          <div className="rounded-2xl border p-4 bg-gray-50 space-y-3">
+            <p className="text-sm font-medium">Edição (Sheet)</p>
+            <Input placeholder="Nome" defaultValue={first?.full_name ?? ""} />
+            <Input placeholder="Telefone" defaultValue={first?.phone ?? ""} />
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">Anexos</p>
+              <div className="aspect-video rounded-lg border bg-white grid place-items-center text-gray-400">
+                Arraste o arquivo aqui
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button>Salvar</Button>
+              <Button variant="outline">Cancelar</Button>
+            </div>
+            {error && (
+              <div className="text-xs text-amber-700">
+                Erro ao ler <code>patients</code>: {error.message}
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
-    </>
+          </div>
+        </CardContent>
+      </Card>
+    </AppFrame>
   );
 }
