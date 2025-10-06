@@ -1,136 +1,54 @@
 // app/secretaria/page.tsx
-import AppFrame from "@/components/app-frame";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  Button,
-  Input,
-  Select,
-  Table,
-  THead,
-  TH,
-  TRow,
-  TD,
-} from "@/components/ui/primitives";
 import requireRole from "@/lib/auth/requireRole";
-import { revalidatePath } from "next/cache";
+import { createSupabaseServer } from "@/lib/supabase/server";
+
+// Se você tiver um layout/componente de moldura, importe-o.
+// Aqui uso só HTML+Tailwind pra ficar plug-and-play.
+export const dynamic = "force-dynamic";
 
 type IntakeRow = {
   id: string;
   created_at: string | null;
   nome: string | null;
   cpf: string | null;
-  phone?: string | null;     // alguns bancos usam 'phone'
-  telefone?: string | null;  // outros usam 'telefone'
+  telefone: string | null;
 };
 
-async function promover(id: string) {
-  "use server";
-  const { supabase } = await requireRole(["staff", "admin"]);
-  await supabase.rpc("promover_intake_paciente", { intake_id: id });
-  revalidatePath("/secretaria");
-}
-
-async function rejeitar(id: string) {
-  "use server";
-  const { supabase } = await requireRole(["staff", "admin"]);
-  await supabase.from("pacientes_intake").delete().eq("id", id);
-  revalidatePath("/secretaria");
-}
-
 export default async function Page() {
-  const { supabase } = await requireRole(["staff", "admin"]);
+  // Garante acesso
+  await requireRole(["staff", "admin"]);
 
-  // leitura segura (data: T[] | null) -> garante array
-  const { data: rowsRaw, error } = await supabase
+  const supabase = createSupabaseServer();
+  const { data, error } = await supabase
     .from("pacientes_intake")
-    .select("id, created_at, nome, cpf, phone, telefone")
-    .order("created_at", { ascending: false });
+    .select("id, created_at, nome, cpf, telefone")
+    .order("created_at", { ascending: false })
+    .limit(100);
 
-  const rows: IntakeRow[] = rowsRaw ?? [];
+  if (error) {
+    // Deixe explodir para o Next mostrar a error page
+    throw error;
+  }
 
-  const mask = (cpf: string | null | undefined) =>
-    !cpf ? "—" : `***.***.***-${cpf.replace(/\D/g, "").slice(-2)}`;
+  const rows: IntakeRow[] = data ?? [];
 
   return (
-    <AppFrame>
-      <Card>
-        <CardHeader className="flex items-center justify-between">
-          <div>
-            <CardTitle>Pendências de Intake</CardTitle>
-            <p className="text-sm text-gray-500">
-              Aprove ou rejeite cadastros enviados
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Input placeholder="Buscar…" className="w-[220px]" />
-            <Select className="w-[150px]">
-              <option>Todas</option>
-              <option>Hoje</option>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-xl border overflow-hidden">
-            <Table>
-              <THead>
-                <TRow>
-                  <TH>Criado</TH>
-                  <TH>Nome</TH>
-                  <TH>CPF</TH>
-                  <TH>Telefone</TH>
-                  <TH className="text-right">Ações</TH>
-                </TRow>
-              </THead>
-              <tbody>
-                {rows.map((r) => (
-                  <TRow key={r.id}>
-                    <TD>
-                      {r.created_at
-                        ? new Date(r.created_at).toLocaleString("pt-BR")
-                        : "—"}
-                    </TD>
-                    <TD>{r.nome || "—"}</TD>
-                    <TD>{mask(r.cpf)}</TD>
-                    <TD>{r.phone ?? r.telefone ?? "—"}</TD>
-                    <TD className="text-right space-x-2">
-                      <form
-                        action={promover.bind(null, r.id)}
-                        className="inline"
-                      >
-                        <Button size="sm">Aprovar</Button>
-                      </form>
-                      <form
-                        action={rejeitar.bind(null, r.id)}
-                        className="inline"
-                      >
-                        <Button size="sm" variant="outline">
-                          Rejeitar
-                        </Button>
-                      </form>
-                    </TD>
-                  </TRow>
-                ))}
-                {rows.length === 0 && (
-                  <TRow>
-                    <TD className="text-center text-gray-500" colSpan={5}>
-                      Sem registros
-                    </TD>
-                  </TRow>
-                )}
-              </tbody>
-            </Table>
-          </div>
+    <div className="p-4 space-y-4">
+      <div className="text-sm text-gray-500">
+        build: <code>{process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local"}</code>
+      </div>
 
-          {error && (
-            <div className="mt-3 text-xs text-amber-700">
-              Erro ao ler <code>pacientes_intake</code>: {error.message}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </AppFrame>
+      <h1 className="text-2xl font-semibold">Aprovação</h1>
+      <p className="text-sm text-gray-500">{rows.length} registros</p>
+
+      {/* Componente cliente recebe os dados prontos */}
+      <SecretariaTableClient rows={rows} />
+    </div>
   );
 }
+
+// Importa dinamicamente o componente client para não vazar "use client" aqui
+import dynamic from "next/dynamic";
+const SecretariaTableClient = dynamic(() => import("./secretaria-table.client"), {
+  ssr: false,
+});
