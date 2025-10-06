@@ -1,36 +1,44 @@
 // lib/auth/requireRole.ts
 import { redirect } from "next/navigation";
-import { serverSupabase } from "@/lib/supabase/server";
+import type { User } from "@supabase/supabase-js";
+import { createSupabaseServer } from "@/lib/supabase/server";
 
-export type Role = "staff" | "doctor" | "admin";
+export type AppRole = "staff" | "doctor" | "admin";
 
-// implementa como função "normal"
-async function requireRole(roles: Role[]) {
-  const supabase = serverSupabase();
+/**
+ * Garante que o usuário esteja autenticado e com uma das roles permitidas.
+ * Redireciona para /login se não cumprir os requisitos.
+ * Retorna { user, profile, supabase } para uso na página/ação.
+ */
+export default async function requireRole(
+  roles: AppRole[] = ["staff", "doctor", "admin"]
+): Promise<{
+  user: User;
+  profile: { id: string; role: string | null; full_name: string | null } | null;
+  supabase: ReturnType<typeof createSupabaseServer>;
+}> {
+  const supabase = createSupabaseServer();
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
-  const { data: ok, error } = await supabase.rpc("klinikia_has_role", { roles });
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("id, role, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
 
   if (error) {
-    console.error("klinikia_has_role error:", error);
+    console.error(error);
     redirect("/login");
   }
 
-  if (!ok) {
+  if (!profile || !profile.role || !roles.includes(profile.role as AppRole)) {
     redirect("/login");
   }
 
-  // devolve o user caso a página queira usar
-  return session.user;
+  return { user: user!, profile, supabase };
 }
-
-// exporta dos dois jeitos para compatibilidade
-export default requireRole;
-export { requireRole };

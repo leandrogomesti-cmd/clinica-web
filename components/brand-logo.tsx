@@ -2,7 +2,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-export function BrandLogo() {
+export default function BrandLogo() {
   return (
     <Link href="/" className="inline-flex items-center gap-2">
       <Image
