@@ -1,18 +1,36 @@
 // lib/auth/requireRole.ts
-import { redirect } from "next/navigation"
-import { createSupabaseServer } from "@/lib/supabase/server"
+import { redirect } from "next/navigation";
+import { serverSupabase } from "@/lib/supabase/server";
 
-export async function requireRole(allowed: Array<"staff" | "doctor" | "admin">) {
-  const supabase = createSupabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect("/login")
+export type Role = "staff" | "doctor" | "admin";
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle()
+// implementa como função "normal"
+async function requireRole(roles: Role[]) {
+  const supabase = serverSupabase();
 
-  if (!profile || !allowed.includes(profile.role as any)) redirect("/login")
-  return { supabase, user, role: profile.role as "staff" | "doctor" | "admin" }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  const { data: ok, error } = await supabase.rpc("klinikia_has_role", { roles });
+
+  if (error) {
+    console.error("klinikia_has_role error:", error);
+    redirect("/login");
+  }
+
+  if (!ok) {
+    redirect("/login");
+  }
+
+  // devolve o user caso a página queira usar
+  return session.user;
 }
+
+// exporta dos dois jeitos para compatibilidade
+export default requireRole;
+export { requireRole };

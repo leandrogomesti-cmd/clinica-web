@@ -1,22 +1,23 @@
 // app/financeiro/page.tsx
-import { requireRole } from "@/lib/auth/requireRole"
-import { createSupabaseServer } from "@/lib/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import requireRole from "@/lib/auth/requireRole";
+import { serverSupabase } from "@/lib/supabase/server";
 
-export default async function Page() {
-  await requireRole(["staff", "admin"])
-  const supabase = createSupabaseServer()
-  const { data: resumo } = await supabase
+export default async function Financeiro() {
+  await requireRole(["staff", "admin"]);
+
+  const supabase = serverSupabase();
+  const { data, error } = await supabase
     .from("v_financeiro_resumo")
-    .select("mes, total_cents")
-    .order("mes", { ascending: true })
+    .select("*");
+
+  if (error) {
+    return <main>Erro ao carregar financeiro: {error.message}</main>;
+  }
 
   return (
-    <Card>
-      <CardHeader><CardTitle>Financeiro</CardTitle></CardHeader>
-      <CardContent>
-        <pre className="text-xs">{JSON.stringify(resumo, null, 2)}</pre>
-      </CardContent>
-    </Card>
-  )
+    <main>
+      <h1 className="text-xl font-semibold mb-4">Financeiro</h1>
+      {/* tabela/renderização que você já usa */}
+    </main>
+  );
 }
