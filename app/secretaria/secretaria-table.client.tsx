@@ -1,4 +1,3 @@
-// app/secretaria/secretaria-table.client.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -59,20 +58,15 @@ export default function SecretariaTableClient({ rows }: { rows: IntakeRow[] }) {
                 <td className="p-3">{r.cpf || "—"}</td>
                 <td className="p-3">{r.telefone || "—"}</td>
                 <td className="p-3 text-right">
-                  {/* Botão fictício (você pluga sua action/RPC aqui) */}
                   <button
                     className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                    onClick={() => {
-                      // TODO: chamar sua RPC de promoção
-                      alert(`Promover intake ${r.id}`);
-                    }}
+                    onClick={() => alert(`Promover intake ${r.id}`)}
                   >
                     Promover
                   </button>
                 </td>
               </tr>
             ))}
-
             {filtered.length === 0 && (
               <tr>
                 <td className="p-6 text-center text-gray-500" colSpan={5}>

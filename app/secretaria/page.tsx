@@ -2,8 +2,6 @@
 import requireRole from "@/lib/auth/requireRole";
 import { createSupabaseServer } from "@/lib/supabase/server";
 
-// Se você tiver um layout/componente de moldura, importe-o.
-// Aqui uso só HTML+Tailwind pra ficar plug-and-play.
 export const dynamic = "force-dynamic";
 
 type IntakeRow = {
@@ -15,7 +13,7 @@ type IntakeRow = {
 };
 
 export default async function Page() {
-  // Garante acesso
+  // Permissões
   await requireRole(["staff", "admin"]);
 
   const supabase = createSupabaseServer();
@@ -25,10 +23,7 @@ export default async function Page() {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  if (error) {
-    // Deixe explodir para o Next mostrar a error page
-    throw error;
-  }
+  if (error) throw error;
 
   const rows: IntakeRow[] = data ?? [];
 
@@ -41,14 +36,15 @@ export default async function Page() {
       <h1 className="text-2xl font-semibold">Aprovação</h1>
       <p className="text-sm text-gray-500">{rows.length} registros</p>
 
-      {/* Componente cliente recebe os dados prontos */}
+      {/* Tabela (client component) */}
       <SecretariaTableClient rows={rows} />
     </div>
   );
 }
 
-// Importa dinamicamente o componente client para não vazar "use client" aqui
-import dynamic from "next/dynamic";
-const SecretariaTableClient = dynamic(() => import("./secretaria-table.client"), {
-  ssr: false,
-});
+// ⚠️ Renomeie o import para evitar colisão com `export const dynamic`
+import NextDynamic from "next/dynamic";
+const SecretariaTableClient = NextDynamic(
+  () => import("./secretaria-table.client"),
+  { ssr: false }
+);
