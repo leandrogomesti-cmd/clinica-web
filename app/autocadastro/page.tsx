@@ -9,6 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || "");
+      // resultado vem como "data:...;base64,AAAA"; pegamos só o base64
+      resolve(s.includes(",") ? s.split(",")[1] : s);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
 export default function Page() {
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
@@ -20,16 +33,31 @@ export default function Page() {
     e.preventDefault();
     setLoading(true);
 
-    const formData = new FormData(e.currentTarget);
-    const raw = Object.fromEntries(formData) as Record<string, any>;
+    const fd = new FormData(e.currentTarget);
+    const raw = Object.fromEntries(fd) as Record<string, any>;
 
-    // mapeia phone -> telefone (mantendo seus campos/nomes)
-    const payload = {
-      ...raw,
-      telefone: raw.telefone ?? raw.phone ?? null,
-      status: raw.status ?? "pendente",
-    };
-    delete (payload as any).phone; // opcional
+    // 🔁 Mapeamentos p/ colunas do DB (sem mudar seus inputs)
+    const payload: Record<string, any> = { ...raw };
+
+    // full_name (UI) -> nome (DB)
+    if (raw.full_name && !raw.nome) {
+      payload.nome = raw.full_name;
+      delete payload.full_name;
+    }
+
+    // birth_date (UI) -> data_nascimento (DB)
+    if (raw.birth_date && !raw.data_nascimento) {
+      payload.data_nascimento = raw.birth_date; // já está em YYYY-MM-DD
+      delete payload.birth_date;
+    }
+
+    // phone (UI) -> telefone (DB)
+    if (raw.phone && !raw.telefone) {
+      payload.telefone = raw.phone;
+      delete payload.phone;
+    }
+
+    if (!payload.status) payload.status = "pendente";
 
     const { error } = await supabase.from("pacientes_intake").insert(payload);
     setLoading(false);
@@ -44,13 +72,20 @@ export default function Page() {
   async function handleOCR(file: File) {
     setOcrLoading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/ocr/vision", { method: "POST", body: fd });
-      const { parsed, error } = await res.json();
-      if (error) throw new Error(error);
+      const imageBase64 = await fileToBase64(file);
 
-      // Preenche SOMENTE se o input existir (não cria nada novo)
+      const res = await fetch("/api/ocr/vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64 }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Falha no OCR");
+
+      const parsed = data?.parsed ?? {};
+
+      // preenche SOMENTE se o input existe
       const form = formRef.current!;
       const setVal = (name: string, v?: string) => {
         if (!v) return;
@@ -58,10 +93,13 @@ export default function Page() {
         if (el) el.value = v;
       };
 
-      setVal("full_name", parsed?.full_name);
-      setVal("cpf", parsed?.cpf);
-      // birth_date espera YYYY-MM-DD
-      setVal("birth_date", parsed?.birth_date);
+      setVal("full_name", parsed.full_name);
+      setVal("cpf", parsed.cpf);
+      // para o autocadastro o input é "birth_date" (UI),
+      // a conversão para data_nascimento é feita no submit
+      setVal("birth_date", parsed.birth_date);
+      // se você tiver <Input name="rg" />, também será preenchido
+      setVal("rg", parsed.rg);
 
       alert("Dados lidos do documento. Confira os campos.");
     } catch (e: any) {
@@ -118,7 +156,6 @@ export default function Page() {
 
             <Textarea name="notes" placeholder="Observações" />
 
-            {/* Mesma área de botões, adicionando o "Ler documento" */}
             <div className="flex gap-2">
               <Button disabled={loading}>{loading ? "Enviando…" : "Enviar"}</Button>
               <Button
@@ -131,7 +168,7 @@ export default function Page() {
               </Button>
             </div>
 
-            {/* input de arquivo escondido (sem mudar layout) */}
+            {/* input de arquivo escondido */}
             <input
               ref={fileRef}
               type="file"
