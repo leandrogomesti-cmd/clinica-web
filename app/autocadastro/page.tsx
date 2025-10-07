@@ -14,11 +14,32 @@ function fileToBase64(file: File): Promise<string> {
     const r = new FileReader();
     r.onload = () => {
       const s = String(r.result || "");
-      resolve(s.includes(",") ? s.split(",")[1] : s); // pega só o base64
+      resolve(s.includes(",") ? s.split(",")[1] : s);
     };
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+// mapeia selects da UI para enums do DB
+function mapSexo(ui?: string) {
+  switch (ui) {
+    case "feminino": return "F";
+    case "masculino": return "M";
+    case "outro": return "OUTRO";
+    case "nao_informar": return "NAO_INFORMADO";
+    default: return undefined; // deixa default do DB
+  }
+}
+function mapEstadoCivil(ui?: string) {
+  switch (ui) {
+    case "solteiro": return "SOLTEIRO";
+    case "casado": return "CASADO";
+    case "divorciado": return "DIVORCIADO";
+    case "viuvo": return "VIUVO";
+    case "uniao_estavel": return "UNIAO_ESTAVEL";
+    default: return undefined; // deixa default do DB
+  }
 }
 
 export default function Page() {
@@ -35,22 +56,39 @@ export default function Page() {
     const fd = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd) as Record<string, any>;
 
-    // UI -> DB (sem mudar seus inputs)
-    const payload: Record<string, any> = { ...raw };
-    if (raw.full_name && !raw.nome) {
-      payload.nome = raw.full_name;       // full_name(UI) -> nome(DB)
-      delete payload.full_name;
-    }
-    if (raw.birth_date && !raw.data_nascimento) {
-      payload.data_nascimento = raw.birth_date; // YYYY-MM-DD
-      delete payload.birth_date;
-    }
-    if (raw.phone && !raw.telefone) {
-      payload.telefone = raw.phone;       // phone(UI) -> telefone(DB)
-      delete payload.phone;
-    }
-    // rg já está com o mesmo nome no DB, não precisa mapear
-    if (!payload.status) payload.status = "pendente";
+    const payload: Record<string, any> = {
+      // Identificação
+      ...(raw.full_name && { nome: raw.full_name }),
+      ...(raw.cpf && { cpf: raw.cpf }),
+      ...(raw.rg && { rg: raw.rg }),
+      ...(raw.birth_date && { data_nascimento: raw.birth_date }),
+
+      // Enums
+      ...(raw.sex && { sexo: mapSexo(raw.sex) }),
+      ...(raw.marital_status && { estado_civil: mapEstadoCivil(raw.marital_status) }),
+
+      // Contatos
+      ...(raw.phone && { telefone: raw.phone }),
+      ...(raw.email && { email: raw.email }),
+
+      // Profissão
+      ...(raw.profession && { profissao: raw.profession }),
+
+      // Endereço
+      ...(raw.cep && { cep: raw.cep }),
+      ...(raw.uf && { estado: raw.uf }),
+      ...(raw.city && { cidade: raw.city }),
+      ...(raw.district && { bairro: raw.district }),
+      ...(raw.address && { logradouro: raw.address }),
+      ...(raw.address_number && { numero: raw.address_number }),
+      ...(raw.address_complement && { complemento: raw.address_complement }),
+
+      // Observações é NOT NULL no DB
+      observacoes: (raw.notes ?? "").toString(),
+
+      // Status padrão
+      status: "pendente",
+    };
 
     const { error } = await supabase.from("pacientes_intake").insert(payload);
     setLoading(false);
@@ -75,24 +113,19 @@ export default function Page() {
       });
 
       let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
+      try { data = await res.json(); } catch { data = null; }
 
       // Fallback: se a API exigir arquivo
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
-        const fd = new FormData();
-        fd.append("file", file);
-        res = await fetch("/api/ocr/vision", { method: "POST", body: fd });
+        const f = new FormData();
+        f.append("file", file);
+        res = await fetch("/api/ocr/vision", { method: "POST", body: f });
         data = await res.json();
       }
 
       if (!res.ok) throw new Error(data?.error || "Falha no OCR");
 
       const parsed = data?.parsed ?? {};
-
       const form = formRef.current!;
       const setVal = (name: string, v?: string) => {
         if (!v) return;
@@ -118,13 +151,12 @@ export default function Page() {
       <Card>
         <CardHeader><CardTitle>Autocadastro</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {/* Mantém seu layout/campos */}
+          {/* Layout original preservado */}
           <form ref={formRef} onSubmit={onSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Input name="full_name" placeholder="Nome completo" className="col-span-2" required />
               <Input name="cpf" placeholder="CPF" required />
               <Input name="birth_date" type="date" placeholder="Data de Nascimento" />
-              {/* novo campo RG sem deslocar os existentes */}
               <Input name="rg" placeholder="RG" className="col-span-2" />
 
               <Select name="marital_status">
