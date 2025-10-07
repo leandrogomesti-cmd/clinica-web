@@ -21,17 +21,18 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-// normalizadores
+// helpers
 const onlyDigits = (s: any) => String(s ?? "").replace(/\D+/g, "");
+const upper = (s: any) => String(s ?? "").toUpperCase();
 
-// mapeia selects da UI para enums do DB
+// enums
 function mapSexo(ui?: string) {
   switch (ui) {
     case "feminino": return "F";
     case "masculino": return "M";
     case "outro": return "OUTRO";
     case "nao_informar": return "NAO_INFORMADO";
-    default: return undefined; // usa default do DB
+    default: return undefined;
   }
 }
 function mapEstadoCivil(ui?: string) {
@@ -41,8 +42,33 @@ function mapEstadoCivil(ui?: string) {
     case "divorciado": return "DIVORCIADO";
     case "viuvo": return "VIUVO";
     case "uniao_estavel": return "UNIAO_ESTAVEL";
-    default: return undefined; // usa default do DB
+    default: return undefined;
   }
+}
+
+// heurísticas de OCR
+function pickCPF(text: string) {
+  const m = text.match(/(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/);
+  return m?.[1];
+}
+function pickBirth(text: string) {
+  const m = text.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
+  return m?.[1];
+}
+function pickRG(text: string) {
+  // exemplos: "RG 25.099.767-8", "25099767 SSP", "Registro 25099767"
+  let m = text.match(/\bRG[:\s-]*([\d.\-xX]{5,14})\b/i);
+  if (m) return m[1];
+  m = text.match(/\b(\d{7,9})\s+SSP\b/i);
+  if (m) return m[1];
+  m = text.match(/\bRegistro[:\s-]*([\d.\-xX]{5,14})\b/i);
+  if (m) return m[1];
+  return undefined;
+}
+function pickName(text: string) {
+  // CNH costuma ter "NOME LEANDRO GOMES"
+  const m = text.match(/NOME[:\s]*([A-ZÀ-Ú\s]{3,})/i);
+  return m?.[1]?.trim();
 }
 
 export default function Page() {
@@ -59,21 +85,20 @@ export default function Page() {
     const fd = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd) as Record<string, any>;
 
-    // CPF: normaliza para 11 dígitos (evita violar a CHECK do DB)
+    // Normalizações exigidas pelo DB
     const cpfDigits = onlyDigits(raw.cpf);
     if (cpfDigits.length !== 11) {
       setLoading(false);
       alert("CPF inválido: informe 11 dígitos.");
       return;
     }
-
-    // Telefone: string (pode vazio, porém nunca null) — usado p/ telefone_whatsapp (NOT NULL)
-    const tel = String(raw.phone ?? "").trim();
+    const tel = String(raw.phone ?? "").trim(); // telefone_whatsapp é NOT NULL
+    const uf = raw.uf ? upper(raw.uf) : undefined;
 
     const payload: Record<string, any> = {
       // Identificação
       ...(raw.full_name && { nome: raw.full_name }),
-      cpf: cpfDigits,                       // <- somentte dígitos (compatível com a constraint)
+      cpf: cpfDigits,
       ...(raw.rg && { rg: raw.rg }),
       ...(raw.birth_date && { data_nascimento: raw.birth_date }),
 
@@ -82,23 +107,23 @@ export default function Page() {
       ...(raw.marital_status && { estado_civil: mapEstadoCivil(raw.marital_status) }),
 
       // Contatos
-      telefone_whatsapp: tel,               // <- NOT NULL garantido
+      telefone_whatsapp: tel, // NOT NULL garantido
       ...(tel && { telefone: tel }),
       ...(raw.email && { email: raw.email }),
 
       // Profissão
       ...(raw.profession && { profissao: raw.profession }),
 
-      // Endereço (colunas existentes)
+      // Endereço
       ...(raw.cep && { cep: raw.cep }),
-      ...(raw.uf && { estado: raw.uf }),
+      ...(uf && { estado: uf }),
       ...(raw.city && { cidade: raw.city }),
       ...(raw.district && { bairro: raw.district }),
       ...(raw.address && { logradouro: raw.address }),
       ...(raw.address_number && { numero: raw.address_number }),
       ...(raw.address_complement && { complemento: raw.address_complement }),
 
-      // Observações é NOT NULL no DB
+      // NOT NULL
       observacoes: (raw.notes ?? "").toString(),
 
       // Status padrão
@@ -120,7 +145,7 @@ export default function Page() {
     try {
       const imageBase64 = await fileToBase64(file);
 
-      // 1ª tentativa: JSON (base64)
+      // tenta JSON (base64)
       let res = await fetch("/api/ocr/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,17 +155,25 @@ export default function Page() {
       let data: any;
       try { data = await res.json(); } catch { data = null; }
 
-      // Fallback: se a API exigir arquivo
+      // fallback para multipart
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
         const f = new FormData();
         f.append("file", file);
         res = await fetch("/api/ocr/vision", { method: "POST", body: f });
         data = await res.json();
       }
-
       if (!res.ok) throw new Error(data?.error || "Falha no OCR");
 
       const parsed = data?.parsed ?? {};
+      const fullText: string = data?.text ?? "";
+
+      const best = {
+        full_name: parsed.full_name ?? pickName(fullText),
+        cpf: parsed.cpf ?? pickCPF(fullText),
+        birth_date: parsed.birth_date ?? pickBirth(fullText),
+        rg: parsed.rg ?? pickRG(fullText),
+      };
+
       const form = formRef.current!;
       const setVal = (name: string, v?: string) => {
         if (!v) return;
@@ -148,10 +181,10 @@ export default function Page() {
         if (el) el.value = v;
       };
 
-      setVal("full_name", parsed.full_name);
-      setVal("cpf", parsed.cpf);             // a normalização para dígitos ocorre no submit
-      setVal("birth_date", parsed.birth_date);
-      setVal("rg", parsed.rg);
+      setVal("full_name", best.full_name);
+      setVal("cpf", best.cpf);
+      setVal("birth_date", best.birth_date);
+      setVal("rg", best.rg);
 
       alert("Dados lidos do documento. Confira os campos.");
     } catch (e: any) {
@@ -166,7 +199,7 @@ export default function Page() {
       <Card>
         <CardHeader><CardTitle>Autocadastro</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {/* Layout original preservado */}
+          {/* layout original preservado */}
           <form ref={formRef} onSubmit={onSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Input name="full_name" placeholder="Nome completo" className="col-span-2" required />
@@ -212,12 +245,7 @@ export default function Page() {
 
             <div className="flex gap-2">
               <Button disabled={loading}>{loading ? "Enviando…" : "Enviar"}</Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={ocrLoading}
-                onClick={() => fileRef.current?.click()}
-              >
+              <Button type="button" variant="outline" disabled={ocrLoading} onClick={() => fileRef.current?.click()}>
                 {ocrLoading ? "Lendo…" : "Ler documento"}
               </Button>
             </div>

@@ -18,6 +18,11 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// OCR helpers (mesmos da outra página)
+const pickCPF = (t: string) => t.match(/(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/)?.[1];
+const pickBirth = (t: string) => t.match(/\b(\d{2}\/\d{2}\/\d{4})\b/)?.[1];
+const pickName = (t: string) => t.match(/NOME[:\s]*([A-ZÀ-Ú\s]{3,})/i)?.[1]?.trim();
+
 export default function CadastroClient() {
   const supabase = createClient();
 
@@ -36,12 +41,12 @@ export default function CadastroClient() {
     e.preventDefault();
     setSaving(true);
 
+    // patients NÃO tem coluna cpf; envia só o que existe
     const payload: Record<string, any> = {
-      full_name: form.nome,  // nome (UI) -> full_name (DB)
-      phone: form.telefone,  // telefone (UI) -> phone (DB)
-      // cpf: form.cpf,       // descomente se tiver coluna "cpf" em patients
+      full_name: form.nome,
+      phone: form.telefone,
     };
-    if (form.birth_date) payload.birth_date = form.birth_date;
+    if (form.birth_date) payload.birth_date = form.birth_date; // yyyy-mm-dd (o input da sua UI já envia como date)
 
     const { error } = await supabase.from("patients").insert(payload);
     setMsg(error ? `Erro: ${error.message}` : "Paciente criado!");
@@ -53,7 +58,6 @@ export default function CadastroClient() {
     try {
       const imageBase64 = await fileToBase64(file);
 
-      // 1ª tentativa: JSON (base64)
       let res = await fetch("/api/ocr/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,13 +65,8 @@ export default function CadastroClient() {
       });
 
       let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
+      try { data = await res.json(); } catch { data = null; }
 
-      // Fallback: se rota exigir arquivo
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
         const fd = new FormData();
         fd.append("file", file);
@@ -76,13 +75,15 @@ export default function CadastroClient() {
       }
 
       if (!res.ok) throw new Error(data?.error || "Falha no OCR");
+
       const parsed = data?.parsed ?? {};
+      const fullText: string = data?.text ?? "";
 
       setForm((prev) => ({
         ...prev,
-        nome: parsed.full_name ?? prev.nome,
-        cpf: parsed.cpf ?? prev.cpf,
-        birth_date: parsed.birth_date ?? prev.birth_date,
+        nome: parsed.full_name ?? pickName(fullText) ?? prev.nome,
+        cpf: parsed.cpf ?? pickCPF(fullText) ?? prev.cpf,          // só UI
+        birth_date: parsed.birth_date ?? pickBirth(fullText) ?? prev.birth_date,
       }));
 
       alert("Dados lidos do documento. Confira os campos.");
@@ -109,9 +110,15 @@ export default function CadastroClient() {
             />
             <input
               className="border p-2 rounded w-full"
-              placeholder="CPF"
+              placeholder="CPF (apenas exibição)"
               value={form.cpf}
               onChange={(e) => setForm({ ...form, cpf: e.target.value })}
+            />
+            <input
+              className="border p-2 rounded w-full"
+              type="date"
+              value={form.birth_date || ""}
+              onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
             />
             <input
               className="border p-2 rounded w-full"
