@@ -38,17 +38,18 @@ export default function Page() {
     // UI -> DB (sem mudar seus inputs)
     const payload: Record<string, any> = { ...raw };
     if (raw.full_name && !raw.nome) {
-      payload.nome = raw.full_name;
+      payload.nome = raw.full_name;       // full_name(UI) -> nome(DB)
       delete payload.full_name;
     }
     if (raw.birth_date && !raw.data_nascimento) {
-      payload.data_nascimento = raw.birth_date; // já é YYYY-MM-DD
+      payload.data_nascimento = raw.birth_date; // YYYY-MM-DD
       delete payload.birth_date;
     }
     if (raw.phone && !raw.telefone) {
-      payload.telefone = raw.phone;
+      payload.telefone = raw.phone;       // phone(UI) -> telefone(DB)
       delete payload.phone;
     }
+    // rg já está com o mesmo nome no DB, não precisa mapear
     if (!payload.status) payload.status = "pendente";
 
     const { error } = await supabase.from("pacientes_intake").insert(payload);
@@ -80,7 +81,7 @@ export default function Page() {
         data = null;
       }
 
-      // Fallback: se a API reclamar de "missing-url" ou não for OK, tenta FormData (arquivo)
+      // Fallback: se a API exigir arquivo
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
         const fd = new FormData();
         fd.append("file", file);
@@ -101,7 +102,7 @@ export default function Page() {
 
       setVal("full_name", parsed.full_name);
       setVal("cpf", parsed.cpf);
-      setVal("birth_date", parsed.birth_date); // conversão para DB é feita no submit
+      setVal("birth_date", parsed.birth_date);
       setVal("rg", parsed.rg);
 
       alert("Dados lidos do documento. Confira os campos.");
@@ -123,6 +124,9 @@ export default function Page() {
               <Input name="full_name" placeholder="Nome completo" className="col-span-2" required />
               <Input name="cpf" placeholder="CPF" required />
               <Input name="birth_date" type="date" placeholder="Data de Nascimento" />
+              {/* novo campo RG sem deslocar os existentes */}
+              <Input name="rg" placeholder="RG" className="col-span-2" />
+
               <Select name="marital_status">
                 <SelectTrigger><SelectValue placeholder="Estado civil" /></SelectTrigger>
                 <SelectContent>
