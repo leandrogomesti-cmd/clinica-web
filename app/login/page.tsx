@@ -1,13 +1,14 @@
 // app/login/page.tsx
 "use client"
 import { useState } from "react"
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function Page() {
   const [loading, setLoading] = useState(false)
+  const supabase = createClient();
 
   async function onSubmit(formData: FormData) {
     setLoading(true)
