@@ -1,2 +1,4 @@
 // lib/auth/index.ts
-export { requireRole as default, requireRole, type Role } from "./requireRole";
+export { default } from "./requireRole";           // default export
+export { default as requireRole } from "./requireRole"; // named alias
+export type { Role } from "./requireRole";         // reexport do tipo

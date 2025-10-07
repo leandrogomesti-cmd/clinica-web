@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { createServerClient } from "@/lib/supabase/server";
 
-type Role = "user" | "staff" | "doctor" | "admin";
+export type Role = 'user' | 'staff' | 'doctor' | 'admin';
 
 export default async function requireRole(allowed: Role[]) {
   const supabase = createServerClient();
