@@ -21,6 +21,9 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// normalizadores
+const onlyDigits = (s: any) => String(s ?? "").replace(/\D+/g, "");
+
 // mapeia selects da UI para enums do DB
 function mapSexo(ui?: string) {
   switch (ui) {
@@ -28,7 +31,7 @@ function mapSexo(ui?: string) {
     case "masculino": return "M";
     case "outro": return "OUTRO";
     case "nao_informar": return "NAO_INFORMADO";
-    default: return undefined; // deixa default do DB
+    default: return undefined; // usa default do DB
   }
 }
 function mapEstadoCivil(ui?: string) {
@@ -38,7 +41,7 @@ function mapEstadoCivil(ui?: string) {
     case "divorciado": return "DIVORCIADO";
     case "viuvo": return "VIUVO";
     case "uniao_estavel": return "UNIAO_ESTAVEL";
-    default: return undefined; // deixa default do DB
+    default: return undefined; // usa default do DB
   }
 }
 
@@ -56,13 +59,21 @@ export default function Page() {
     const fd = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd) as Record<string, any>;
 
-    // normaliza telefone como string (pode ser vazio, mas NUNCA null)
-    const tel = (raw.phone ?? "").toString().trim();
+    // CPF: normaliza para 11 dígitos (evita violar a CHECK do DB)
+    const cpfDigits = onlyDigits(raw.cpf);
+    if (cpfDigits.length !== 11) {
+      setLoading(false);
+      alert("CPF inválido: informe 11 dígitos.");
+      return;
+    }
+
+    // Telefone: string (pode vazio, porém nunca null) — usado p/ telefone_whatsapp (NOT NULL)
+    const tel = String(raw.phone ?? "").trim();
 
     const payload: Record<string, any> = {
       // Identificação
       ...(raw.full_name && { nome: raw.full_name }),
-      ...(raw.cpf && { cpf: raw.cpf }),
+      cpf: cpfDigits,                       // <- somentte dígitos (compatível com a constraint)
       ...(raw.rg && { rg: raw.rg }),
       ...(raw.birth_date && { data_nascimento: raw.birth_date }),
 
@@ -71,14 +82,14 @@ export default function Page() {
       ...(raw.marital_status && { estado_civil: mapEstadoCivil(raw.marital_status) }),
 
       // Contatos
-      telefone_whatsapp: tel,           // <- NOT NULL garantido
-      ...(tel && { telefone: tel }),    // opcional: também grava em `telefone` se houver valor
+      telefone_whatsapp: tel,               // <- NOT NULL garantido
+      ...(tel && { telefone: tel }),
       ...(raw.email && { email: raw.email }),
 
       // Profissão
       ...(raw.profession && { profissao: raw.profession }),
 
-      // Endereço (mapeados para as colunas existentes)
+      // Endereço (colunas existentes)
       ...(raw.cep && { cep: raw.cep }),
       ...(raw.uf && { estado: raw.uf }),
       ...(raw.city && { cidade: raw.city }),
@@ -138,7 +149,7 @@ export default function Page() {
       };
 
       setVal("full_name", parsed.full_name);
-      setVal("cpf", parsed.cpf);
+      setVal("cpf", parsed.cpf);             // a normalização para dígitos ocorre no submit
       setVal("birth_date", parsed.birth_date);
       setVal("rg", parsed.rg);
 
