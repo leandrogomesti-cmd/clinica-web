@@ -14,8 +14,7 @@ function fileToBase64(file: File): Promise<string> {
     const r = new FileReader();
     r.onload = () => {
       const s = String(r.result || "");
-      // resultado vem como "data:...;base64,AAAA"; pegamos só o base64
-      resolve(s.includes(",") ? s.split(",")[1] : s);
+      resolve(s.includes(",") ? s.split(",")[1] : s); // pega só o base64
     };
     r.onerror = reject;
     r.readAsDataURL(file);
@@ -36,27 +35,20 @@ export default function Page() {
     const fd = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd) as Record<string, any>;
 
-    // 🔁 Mapeamentos p/ colunas do DB (sem mudar seus inputs)
+    // UI -> DB (sem mudar seus inputs)
     const payload: Record<string, any> = { ...raw };
-
-    // full_name (UI) -> nome (DB)
     if (raw.full_name && !raw.nome) {
       payload.nome = raw.full_name;
       delete payload.full_name;
     }
-
-    // birth_date (UI) -> data_nascimento (DB)
     if (raw.birth_date && !raw.data_nascimento) {
-      payload.data_nascimento = raw.birth_date; // já está em YYYY-MM-DD
+      payload.data_nascimento = raw.birth_date; // já é YYYY-MM-DD
       delete payload.birth_date;
     }
-
-    // phone (UI) -> telefone (DB)
     if (raw.phone && !raw.telefone) {
       payload.telefone = raw.phone;
       delete payload.phone;
     }
-
     if (!payload.status) payload.status = "pendente";
 
     const { error } = await supabase.from("pacientes_intake").insert(payload);
@@ -74,18 +66,32 @@ export default function Page() {
     try {
       const imageBase64 = await fileToBase64(file);
 
-      const res = await fetch("/api/ocr/vision", {
+      // 1ª tentativa: JSON (base64)
+      let res = await fetch("/api/ocr/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64 }),
       });
 
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      // Fallback: se a API reclamar de "missing-url" ou não for OK, tenta FormData (arquivo)
+      if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
+        const fd = new FormData();
+        fd.append("file", file);
+        res = await fetch("/api/ocr/vision", { method: "POST", body: fd });
+        data = await res.json();
+      }
+
       if (!res.ok) throw new Error(data?.error || "Falha no OCR");
 
       const parsed = data?.parsed ?? {};
 
-      // preenche SOMENTE se o input existe
       const form = formRef.current!;
       const setVal = (name: string, v?: string) => {
         if (!v) return;
@@ -95,10 +101,7 @@ export default function Page() {
 
       setVal("full_name", parsed.full_name);
       setVal("cpf", parsed.cpf);
-      // para o autocadastro o input é "birth_date" (UI),
-      // a conversão para data_nascimento é feita no submit
-      setVal("birth_date", parsed.birth_date);
-      // se você tiver <Input name="rg" />, também será preenchido
+      setVal("birth_date", parsed.birth_date); // conversão para DB é feita no submit
       setVal("rg", parsed.rg);
 
       alert("Dados lidos do documento. Confira os campos.");
@@ -114,7 +117,7 @@ export default function Page() {
       <Card>
         <CardHeader><CardTitle>Autocadastro</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {/* Seu layout e campos permanecem iguais */}
+          {/* Mantém seu layout/campos */}
           <form ref={formRef} onSubmit={onSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Input name="full_name" placeholder="Nome completo" className="col-span-2" required />
@@ -168,7 +171,6 @@ export default function Page() {
               </Button>
             </div>
 
-            {/* input de arquivo escondido */}
             <input
               ref={fileRef}
               type="file"
