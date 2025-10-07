@@ -56,6 +56,9 @@ export default function Page() {
     const fd = new FormData(e.currentTarget);
     const raw = Object.fromEntries(fd) as Record<string, any>;
 
+    // normaliza telefone como string (pode ser vazio, mas NUNCA null)
+    const tel = (raw.phone ?? "").toString().trim();
+
     const payload: Record<string, any> = {
       // Identificação
       ...(raw.full_name && { nome: raw.full_name }),
@@ -68,13 +71,14 @@ export default function Page() {
       ...(raw.marital_status && { estado_civil: mapEstadoCivil(raw.marital_status) }),
 
       // Contatos
-      ...(raw.phone && { telefone: raw.phone }),
+      telefone_whatsapp: tel,           // <- NOT NULL garantido
+      ...(tel && { telefone: tel }),    // opcional: também grava em `telefone` se houver valor
       ...(raw.email && { email: raw.email }),
 
       // Profissão
       ...(raw.profession && { profissao: raw.profession }),
 
-      // Endereço
+      // Endereço (mapeados para as colunas existentes)
       ...(raw.cep && { cep: raw.cep }),
       ...(raw.uf && { estado: raw.uf }),
       ...(raw.city && { cidade: raw.city }),
