@@ -10,6 +10,8 @@ type Appt = {
   patient_name: string | null;
 };
 
+type Props = { appts?: Appt[] };
+
 export default function AgendaClient({ appts = [] as Appt[] }) {
   // Monta semana (Seg–Sex 08h–17h) com blocos
   const days = ["Seg", "Ter", "Qua", "Qui", "Sex"];
