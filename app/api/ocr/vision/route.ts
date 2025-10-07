@@ -32,16 +32,31 @@ function brToISODate(br?: string) {
   return `${y}-${mm}-${d}`;
 }
 
+// ---------- RG helpers ----------
+const RG_PATTERNS: RegExp[] = [
+  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/,   // 12.345.678-9 ou 12345678-9
+  /\b\d{7,9}-?[0-9Xx]\b/,                 // 25099767-8
+  /\b\d{8,9}\b/,                          // 8-9 dígitos (fallback)
+];
+
+function extractRG(text: string): string | undefined {
+  for (const re of RG_PATTERNS) {
+    const m = text.match(re);
+    if (m) {
+      const just = (m[0].match(/[\d.\-Xx]+/) || [])[0];
+      return just?.toUpperCase();
+    }
+  }
+  return undefined;
+}
+
 function pickAfterLabel(lines: string[], labels: string[]) {
-  // procura uma linha contendo o label; devolve a parte após o label
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i].toUpperCase();
     if (isNoise(L)) continue;
     if (labels.some((lab) => L.includes(lab))) {
-      // 1) mesmo verso após ":" ou label
       const same = lines[i].split(/[:\-]/).slice(1).join(":").trim();
       if (same) return same;
-      // 2) próxima linha não vazia
       const next = clean(lines[i + 1] || "");
       if (next && !isNoise(next)) return next;
     }
@@ -50,67 +65,59 @@ function pickAfterLabel(lines: string[], labels: string[]) {
 }
 
 function parseCNH(text: string) {
-  // quebra em linhas legíveis
   const allLines = String(text || "")
     .split(/\r?\n/)
     .map((l) => clean(l))
     .filter(Boolean);
 
   const lines = allLines.filter((l) => !isNoise(l));
-
   const out: Record<string, string> = {};
 
-  // ------ NOME ------
+  // ---- NOME ----
   const nomeRotulado =
-    pickAfterLabel(lines, ["NOME"]) ||
-    pickAfterLabel(lines, ["NOME COMPLETO"]);
+    pickAfterLabel(lines, ["NOME"]) || pickAfterLabel(lines, ["NOME COMPLETO"]);
   if (nomeRotulado) {
-    // evita capturar coisas como "JOAO GOMES NETTO" (filiação) usando heurística: se existir outro bloco com "FILIA" próximo, preferir o primeiro valor depois de NOME
     out.full_name = clean(nomeRotulado.replace(/^NOME\s*/i, ""));
   } else {
-    // fallback: primeira linha toda maiúscula com ≥2 palavras, ignorando ruído
     const cand = lines.find((l) => /^[A-ZÁ-Ú]{2,}(?:\s+[A-ZÁ-Ú]{2,})+$/u.test(l));
     if (cand && !isNoise(cand)) out.full_name = cand;
   }
 
-  // ------ CPF ------
-  // 1) tentar rótulo
+  // ---- CPF ----
   let cpfRaw = pickAfterLabel(lines, ["CPF"]);
   if (cpfRaw) cpfRaw = onlyDigits(cpfRaw);
-  // 2) fallback: primeira ocorrência que pareça CPF, mas ignorar "Nº REGISTRO"
   if (!cpfRaw) {
     for (const l of lines) {
       if (/REGISTRO/i.test(l)) continue;
       const d = onlyDigits(l);
-      if (d.length === 11) {
-        cpfRaw = d;
-        break;
-      }
+      if (d.length === 11) { cpfRaw = d; break; }
     }
   }
   const cpfFmt = formatCPF(cpfRaw || "");
   if (cpfFmt) out.cpf = cpfFmt;
 
-  // ------ RG ------
-  // Em muitas CNHs vem como "DOC. IDENTIDADE/ORG EMISSOR/UF" e o número fica na linha seguinte
-  let rg = pickAfterLabel(lines, ["DOC", "IDENTIDADE", "RG"]);
-  if (rg) {
-    // pega só parte que parece número de RG (com X no dígito verificador às vezes)
-    const m = rg.match(/\b([\d.\-Xx]{4,})\b/);
-    rg = m ? m[1] : rg;
-    out.rg = clean(rg.toUpperCase());
-  } else {
-    // fallback: sequência com 7–12 dígitos/letras típicas de RG
-    const cand = lines
-      .map((l) => (l.match(/\b(\d[\d.\-Xx]{6,})\b/) || [])[1])
-      .find(Boolean);
-    if (cand) out.rg = cand.toUpperCase();
+  // ---- RG (melhorado) ----
+  // 1) ache o índice do rótulo
+  const rgIdx = lines.findIndex((l) =>
+    /DOC\.?\s*IDENTIDADE|IDENTIDADE\/ORG|RG\b/i.test(l)
+  );
+  if (rgIdx >= 0) {
+    const look = lines.slice(rgIdx, rgIdx + 4).join(" "); // pega rótulo + 3 linhas seguintes
+    const rg = extractRG(look);
+    if (rg) out.rg = rg;
+  }
+  // 2) fallback: varrer tudo, ignorando palavras que não são RG
+  if (!out.rg) {
+    for (const l of lines) {
+      if (/CPF|VALIDADE|HABILITA|REGISTRO|PERMISS|CATEG|EMISS/i.test(l)) continue;
+      const rg = extractRG(l);
+      if (rg) { out.rg = rg; break; }
+    }
   }
 
-  // ------ DATA NASCIMENTO ------
+  // ---- DATA NASCIMENTO ----
   const dobLabeled =
     pickAfterLabel(lines, ["DATA NASCIMENTO", "DT NASC", "NASCIMENTO"]) ||
-    // às vezes a data de nascimento e o CPF ficam na mesma linha
     ((): string | undefined => {
       const idx = lines.findIndex((l) => /DATA.*NASC/i.test(l));
       if (idx >= 0) return clean(lines[idx + 1] || "");
@@ -121,16 +128,12 @@ function parseCNH(text: string) {
     const iso = brToISODate(dobMatch[1]);
     if (iso) out.birth_date = iso;
   } else {
-    // fallback: primeira data no formato BR que não seja "VALIDADE" ou "1ª HABILITAÇÃO"
     for (let i = 0; i < lines.length; i++) {
       if (/VALIDADE|1ª|1a|HABILITA|EMISS|REGISTRO/i.test(lines[i])) continue;
       const m = lines[i].match(/(\d{2}[\/\-]\d{2}[\/\-]\d{4})/);
       if (m) {
         const iso = brToISODate(m[1]);
-        if (iso) {
-          out.birth_date = iso;
-          break;
-        }
+        if (iso) { out.birth_date = iso; break; }
       }
     }
   }
@@ -154,7 +157,6 @@ async function readBase64FromRequest(req: Request): Promise<string> {
     const buf = Buffer.from(await file.arrayBuffer());
     return buf.toString("base64");
   }
-  // fallback: tenta texto cru como JSON
   const txt = await req.text();
   try {
     const b = JSON.parse(txt);
@@ -174,7 +176,6 @@ export async function POST(req: Request) {
 
     const content = await readBase64FromRequest(req);
 
-    // DOCUMENT_TEXT_DETECTION tem melhor estrutura para documentos
     const gRes = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
