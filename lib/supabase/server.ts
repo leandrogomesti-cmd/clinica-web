@@ -1,24 +1,20 @@
 // lib/supabase/server.ts
-// Helper para ser usado em Server Components / Server Actions / Route Handlers
 import { cookies } from 'next/headers';
-import { createServerClient as createSSRClient } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 
-export function createServerClient() {
-  const cookieStore = cookies();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const key  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  return createSSRClient(url, anon, {
+export function createSupabaseServer() {
+  const store = cookies();
+  return createServerClient(url, key, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      get: (name) => store.get(name)?.value,
+      set: (name, value, options) => {
+        store.set({ name, value, ...options });
       },
-      set(name: string, value: string, options: any) {
-        // Em Server Actions/Route Handlers o cookie é mutável
-        cookieStore.set({ name, value, ...options });
-      },
-      remove(name: string, options: any) {
-        cookieStore.set({ name, value: '', ...options, maxAge: 0 });
+      remove: (name, options) => {
+        store.set({ name, value: '', ...options, maxAge: 0 });
       },
     },
   });
