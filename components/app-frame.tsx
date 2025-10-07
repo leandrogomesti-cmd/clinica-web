@@ -1,4 +1,5 @@
 // components/app-frame.tsx
+'use client';
 import Link from "next/link";
 import BrandLogo from "@/components/brand-logo";
 
