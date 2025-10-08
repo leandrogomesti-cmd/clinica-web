@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 /** Util: arquivo -> base64 */
@@ -209,34 +208,35 @@ export default function AutocadastroPage() {
             </div>
 
             {/* Dados complementares */}
-            <div className="grid md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm">Estado civil</label>
-                <Select value={form.estado_civil} onValueChange={(v) => setField("estado_civil", v)}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="solteiro">Solteiro(a)</SelectItem>
-                    <SelectItem value="casado">Casado(a)</SelectItem>
-                    <SelectItem value="divorciado">Divorciado(a)</SelectItem>
-                    <SelectItem value="viuvo">Viúvo(a)</SelectItem>
-                    <SelectItem value="uniao_estavel">União estável</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm">Sexo</label>
-                <Select value={form.sexo} onValueChange={(v) => setField("sexo", v)}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="feminino">Feminino</SelectItem>
-                    <SelectItem value="masculino">Masculino</SelectItem>
-                    <SelectItem value="outro">Outro</SelectItem>
-                    <SelectItem value="nao_informar">Prefiro não informar</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
+<div>
+  <label className="text-sm">Estado civil</label>
+  <select
+    className="w-full border rounded-md h-10 px-3 text-sm"
+    value={form.estado_civil}
+    onChange={(e) => setField("estado_civil", e.target.value)}
+  >
+    <option value="" disabled>Selecione</option>
+    <option value="solteiro">Solteiro(a)</option>
+    <option value="casado">Casado(a)</option>
+    <option value="divorciado">Divorciado(a)</option>
+    <option value="viuvo">Viúvo(a)</option>
+    <option value="uniao_estavel">União estável</option>
+  </select>
+</div>
+<div>
+  <label className="text-sm">Sexo</label>
+  <select
+    className="w-full border rounded-md h-10 px-3 text-sm"
+    value={form.sexo}
+    onChange={(e) => setField("sexo", e.target.value)}
+  >
+    <option value="" disabled>Selecione</option>
+    <option value="feminino">Feminino</option>
+    <option value="masculino">Masculino</option>
+    <option value="outro">Outro</option>
+    <option value="nao_informar">Prefiro não informar</option>
+  </select>
+</div>
             {/* Endereço */}
             <div className="grid md:grid-cols-2 gap-3">
               <div>
