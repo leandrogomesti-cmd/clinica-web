@@ -1,4 +1,4 @@
-// app/api/ocr/vision/route.ts — CPF/RG robusto (prioriza rótulo "CPF" e evita Nº REGISTRO)
+// app/api/ocr/vision/route.ts — CPF fix forte (prioriza rótulo “CPF”, janela multi‑linha e ignora Nº REGISTRO)
 // Next.js App Router API (Edge)
 // - Aceita JSON (imageBase64 | url) ou multipart/form-data (file)
 // - Usa Google Vision DOCUMENT_TEXT_DETECTION com hints pt/pt-BR
@@ -46,6 +46,7 @@ export async function POST(req: Request): Promise<Response> {
       const file = (form.get("file") || form.get("image")) as File | null;
       if (!file) return bad({ error: "missing-file" });
 
+      // Recusa HEIC/HEIF explícito (cliente deve converter p/ JPEG)
       if (/heic|heif/i.test(file.type) || /\.heic$/i.test(file.name)) {
         return bad({ error: "heic-not-supported: envie JPEG/PNG" });
       }
@@ -140,29 +141,33 @@ function formatCPF(d: string) {
 function extractCPF(text: string) {
   const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const cpfRe = /(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/;
+  const isRegistroish = (u: string) => /(REGIST|N[º°o.]?\s*REG|NO\s+REG)/i.test(u);
 
-  const isRegistroish = (u: string) => /(REGIST|N[º°o]?\s*REG)/i.test(u);
+  // A) captura robusta: janela de até 40 chars após a palavra CPF (suporta quebra de linha)
+  {
+    const m = text.match(/CPF[\s\S]{0,40}(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/i);
+    if (m) return formatCPF(m[1]);
+  }
 
-  // 1) prioriza linha com rótulo CPF
+  // B) prioriza a(s) linha(s) do rótulo CPF, olhando até 2 linhas abaixo e pulando "REGISTRO"
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i];
     const U = L.toUpperCase();
-    if (U.includes("CPF")) {
-      let m = L.match(cpfRe);
-      if (m && !isRegistroish(U)) return formatCPF(m[1]);
-      const next = lines[i + 1] || "";
-      const UN = next.toUpperCase();
-      if (next && !isRegistroish(UN)) {
-        m = next.match(cpfRe);
+    if (/\bCPF\b/.test(U)) {
+      for (let j = i; j <= Math.min(i + 2, lines.length - 1); j++) {
+        const Lj = lines[j];
+        const Uj = Lj.toUpperCase();
+        if (isRegistroish(Uj)) continue; // evita Nº REGISTRO
+        const m = Lj.match(cpfRe);
         if (m) return formatCPF(m[1]);
       }
     }
   }
 
-  // 2) fallback: procura CPF ignorando linhas que parecem "Nº REGISTRO"
+  // C) fallback geral: scana todas as linhas, ignorando quaisquer linhas "registro"
   for (const L of lines) {
     const U = L.toUpperCase();
-    if (isRegistroish(U)) continue; // evita 022.756.783-78 etc.
+    if (isRegistroish(U)) continue;
     const m = L.match(cpfRe);
     if (m) return formatCPF(m[1]);
   }
@@ -171,8 +176,8 @@ function extractCPF(text: string) {
 
 // ---------- RG ----------
 const RG_PATTERNS: RegExp[] = [
-  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/,   // 12.345.678-9 ou 12345678-9
-  /\b\d{7,9}-?[0-9Xx]\b/,                 // 25099767-8
+  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx}\b/,   // 12.345.678-9 ou 12345678-9
+  /\b\d{7,9}-?[0-9Xx}\b/,                 // 25099767-8
   /\b\d{8,9}\b/,                          // 8-9 dígitos (fallback)
 ];
 
