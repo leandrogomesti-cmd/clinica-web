@@ -1,4 +1,4 @@
-// app/autocadastro/page.tsx — mapeado para pacientes_intake (corrigido)
+// app/autocadastro/page.tsx — mapeado para pacientes_intake (corrigido + telefone_whatsapp NOT NULL)
 "use client";
 
 import { useRef, useState } from "react";
@@ -132,7 +132,12 @@ export default function AutocadastroPage() {
       if (sexoDb) payload.sexo = sexoDb; // se não selecionar, cai no DEFAULT (NAO_INFORMADO)
       const ecDb = mapEstadoCivil(form.estado_civil);
       if (ecDb) payload.estado_civil = ecDb; // idem
+      // Telefones – a tabela tem telefone_whatsapp (NOT NULL).
+      // Para não violar o NOT NULL, sempre mandamos ao menos string vazia.
+      payload.telefone_whatsapp = form.telefone || "";
       if (form.telefone) payload.telefone = form.telefone;
+      // Se quiser reusar como telefone_fixo quando informado:
+      // if (form.telefone) payload.telefone_fixo = form.telefone;
       if (form.email) payload.email = form.email;
       if (form.profissao) payload.profissao = form.profissao;
       if (form.cep) payload.cep = form.cep;
