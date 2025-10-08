@@ -1,4 +1,4 @@
-// app/autocadastro/page.tsx — câmera e galeria (atualizado)
+// app/autocadastro/page.tsx — "Ler documento" no cabeçalho (versão completa)
 "use client";
 
 import { useRef, useState } from "react";
@@ -63,12 +63,11 @@ export default function AutocadastroPage() {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Novo: alterna entre câmera e galeria dinamicamente
-  const openPicker = (mode: "camera" | "gallery") => {
+  // Abrir seletor SEM "capture" para oferecer: Fototeca / Tirar foto / Arquivo
+  const openPicker = () => {
     const input = fileRef.current;
     if (!input) return;
-    if (mode === "camera") input.setAttribute("capture", "environment");
-    else input.removeAttribute("capture");
+    input.removeAttribute("capture");
     input.click();
   };
 
@@ -187,9 +186,28 @@ export default function AutocadastroPage() {
   return (
     <div className="max-w-2xl mx-auto p-4">
       <Card>
-        <CardHeader>
+        {/* Cabeçalho com botão à direita */}
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Autocadastro</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button type="button" onClick={openPicker} disabled={ocrLoading}>
+              {ocrLoading ? "Lendo…" : "Ler documento"}
+            </Button>
+            {/* input oculto que abre galeria/câmera */}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleOCR(f);
+                e.currentTarget.value = "";
+              }}
+            />
+          </div>
         </CardHeader>
+
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             {/* Identificação */}
@@ -209,25 +227,6 @@ export default function AutocadastroPage() {
               <div>
                 <label className="text-sm">Data de nascimento</label>
                 <Input type="date" value={form.birth_date} onChange={(e) => setField("birth_date", e.target.value)} />
-              </div>
-              <div className="flex items-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => openPicker("camera")} disabled={ocrLoading}>
-                  {ocrLoading ? "Lendo…" : "Tirar foto (câmera)"}
-                </Button>
-                <Button type="button" onClick={() => openPicker("gallery")} disabled={ocrLoading}>
-                  Escolher da galeria
-                </Button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleOCR(f);
-                    e.currentTarget.value = "";
-                  }}
-                />
               </div>
             </div>
 
