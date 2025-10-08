@@ -1,4 +1,4 @@
-// app/autocadastro/page.tsx
+// app/autocadastro/page.tsx — câmera e galeria (atualizado)
 "use client";
 
 import { useRef, useState } from "react";
@@ -62,6 +62,15 @@ async function normalizeMobilePhoto(file: File, targetBytes = 2_800_000) {
 export default function AutocadastroPage() {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Novo: alterna entre câmera e galeria dinamicamente
+  const openPicker = (mode: "camera" | "gallery") => {
+    const input = fileRef.current;
+    if (!input) return;
+    if (mode === "camera") input.setAttribute("capture", "environment");
+    else input.removeAttribute("capture");
+    input.click();
+  };
 
   const [ocrLoading, setOcrLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -202,14 +211,16 @@ export default function AutocadastroPage() {
                 <Input type="date" value={form.birth_date} onChange={(e) => setField("birth_date", e.target.value)} />
               </div>
               <div className="flex items-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()} disabled={ocrLoading}>
-                  {ocrLoading ? "Lendo…" : "Ler do documento"}
+                <Button type="button" variant="secondary" onClick={() => openPicker("camera")} disabled={ocrLoading}>
+                  {ocrLoading ? "Lendo…" : "Tirar foto (câmera)"}
+                </Button>
+                <Button type="button" onClick={() => openPicker("gallery")} disabled={ocrLoading}>
+                  Escolher da galeria
                 </Button>
                 <input
                   ref={fileRef}
                   type="file"
                   accept="image/*,application/pdf"
-                  capture="environment"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
