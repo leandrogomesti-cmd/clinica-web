@@ -1,4 +1,4 @@
-// app/api/ocr/vision/route.ts — CPF fix forte (prioriza rótulo “CPF”, janela multi‑linha e ignora Nº REGISTRO)
+// app/api/ocr/vision/route.ts — CPF robusto (prioriza rótulo "CPF" e ignora Nº REGISTRO) + RG
 // Next.js App Router API (Edge)
 // - Aceita JSON (imageBase64 | url) ou multipart/form-data (file)
 // - Usa Google Vision DOCUMENT_TEXT_DETECTION com hints pt/pt-BR
@@ -19,8 +19,6 @@ interface Ok {
   confidence?: number;
 }
 interface Err { error: string }
-
-type JsonResp = Ok | Err;
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -120,6 +118,7 @@ function toBase64(ab: ArrayBuffer) {
   const bytes = new Uint8Array(ab);
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  // btoa existe no runtime Edge
   return btoa(bin);
 }
 
@@ -143,9 +142,9 @@ function extractCPF(text: string) {
   const cpfRe = /(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/;
   const isRegistroish = (u: string) => /(REGIST|N[º°o.]?\s*REG|NO\s+REG)/i.test(u);
 
-  // A) captura robusta: janela de até 40 chars após a palavra CPF (suporta quebra de linha)
+  // A) captura robusta: janela de até 60 chars após "CPF" (suporta quebra de linha)
   {
-    const m = text.match(/CPF[\s\S]{0,40}(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/i);
+    const m = text.match(/CPF[\s\S]{0,60}(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/i);
     if (m) return formatCPF(m[1]);
   }
 
@@ -176,8 +175,8 @@ function extractCPF(text: string) {
 
 // ---------- RG ----------
 const RG_PATTERNS: RegExp[] = [
-  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx}\b/,   // 12.345.678-9 ou 12345678-9
-  /\b\d{7,9}-?[0-9Xx}\b/,                 // 25099767-8
+  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/,   // 12.345.678-9 ou 12345678-9
+  /\b\d{7,9}-?[0-9Xx]\b/,                 // 25099767-8
   /\b\d{8,9}\b/,                          // 8-9 dígitos (fallback)
 ];
 
