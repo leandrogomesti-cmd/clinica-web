@@ -4,87 +4,62 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/primitives";
 
-// ---------- Tipos ----------
-type ResumoRow = {
-  dia: string | null; // ISO string vindo da view
+// Tipos
+type ViewRow = {
+  dia: string | null;
   total_pago_cents: number | null;
   total_a_receber_cents: number | null;
   total_consultas: number | null;
 };
 
-type Props = { tz?: string };
+type RowUI = {
+  key: string;        // YYYY-MM-DD
+  label: string;      // DD/MM (sem Date)
+  pago: number;
+  aReceber: number;
+  consultas: number;
+};
 
-// ---------- Utils ----------
-function parseISO(s: string | null) {
-  if (!s) return null;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
+// Helpers seguros (sem Date)
+function normalizeYMD(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const s = String(input);
+  // aceita "2025-10-11", "2025-10-11T00:00:00Z", "2025-10-11 00:00:00+00"
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+function labelBR(ymd: string | null): string {
+  if (!ymd) return "-";
+  const [y, m, d] = ymd.split("-");
+  return d && m ? `${d}/${m}` : ymd;
+}
+function centsBRL(v: number) {
+  return (v / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-// YYYY-MM-DD na timezone informada (pra agrupar por dia local)
-function ymdInTZ(d: Date, timeZone = "America/Sao_Paulo") {
-  // en-CA => 2025-10-07
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
-
-function brlCents(v?: number | null) {
-  const n = (v ?? 0) / 100;
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function sum<T>(arr: T[], sel: (x: T) => number) {
-  return arr.reduce((acc, it) => acc + (Number(sel(it)) || 0), 0);
-}
-
-function safeDateLabel(dia: string | null, tz: string) {
-  const d = parseISO(dia);
-  if (!d) return "-";
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: tz,
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-  }).format(d);
-}
-
-// ---------- Componente ----------
-export default function FinanceiroClient({ tz = "America/Sao_Paulo" }: Props) {
+export default function FinanceiroClient() {
   const supabase = createClient();
-  const [rows, setRows] = useState<ResumoRow[] | null>(null);
+  const [rows, setRows] = useState<RowUI[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState<string | null>(null);
 
-  // período: últimos 7 dias incluindo hoje (na timezone do Brasil)
-  const now = useMemo(() => new Date(), []);
+  // Período alvo (últimos 7 dias) — apenas pro filtro no banco
   const fromISO = useMemo(() => {
-    // começo de 7 dias atrás, 00:00 no TZ
-    const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const parts = fmt.formatToParts(now);
-    const y = parts.find(p => p.type === "year")?.value ?? "1970";
-    const m = parts.find(p => p.type === "month")?.value ?? "01";
-    const d = parts.find(p => p.type === "day")?.value ?? "01";
-    // data local de hoje
-    const todayLocal = new Date(`${y}-${m}-${d}T00:00:00`);
-    const from = new Date(todayLocal.getTime() - 6 * 24 * 60 * 60 * 1000);
-    return from.toISOString();
-  }, [now, tz]);
+    // gera "YYYY-MM-DDT00:00:00Z" sem usar Date no render
+    const now = new Date(); // só aqui, fora do render
+    const d7 = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const y = d7.getUTCFullYear();
+    const m = String(d7.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(d7.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}T00:00:00Z`;
+  }, []);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       setNote(null);
 
-      // 1) tenta view v_financeiro_resumo
+      // 1) tenta a view
       const { data: vdata, error: verror } = await supabase
         .from("v_financeiro_resumo")
         .select("*")
@@ -92,82 +67,75 @@ export default function FinanceiroClient({ tz = "America/Sao_Paulo" }: Props) {
         .order("dia", { ascending: true });
 
       if (!verror && Array.isArray(vdata)) {
-        // Normaliza tipos
-        const norm = vdata.map((r: any) => ({
-          dia: r.dia ?? null,
-          total_pago_cents: r.total_pago_cents ?? 0,
-          total_a_receber_cents: r.total_a_receber_cents ?? 0,
-          total_consultas: r.total_consultas ?? 0,
-        })) as ResumoRow[];
-        setRows(norm);
+        const mapped: RowUI[] = vdata.map((r: ViewRow) => {
+          const ymd = normalizeYMD(r.dia);
+          return {
+            key: ymd ?? `x-${Math.random()}`,
+            label: labelBR(ymd),
+            pago: Number(r.total_pago_cents ?? 0),
+            aReceber: Number(r.total_a_receber_cents ?? 0),
+            consultas: Number(r.total_consultas ?? 0),
+          };
+        });
+        setRows(mapped);
         setLoading(false);
         return;
       }
 
-      // 2) fallback se a view não existir: calcula no cliente
-      setNote("View v_financeiro_resumo não encontrada. Usando cálculo local (appointments + payments).");
-
-      // payments pagos (paid)
+      // 2) fallback local
+      setNote("Usando cálculo local (appointments + payments). Crie a view v_financeiro_resumo para acelerar.");
       const { data: pays } = await supabase
         .from("payments")
-        .select("amount_cents, paid_at")
-        .gte("paid_at", fromISO)
-        .in("status", ["paid", "refunded", "chargeback"]); // pago e variações
+        .select("amount_cents, paid_at, status")
+        .gte("paid_at", fromISO);
 
-      // appointments para a receber (payment_status != 'paid')
       const { data: appts } = await supabase
         .from("appointments")
         .select("start_time, price_cents, payment_status")
         .gte("start_time", fromISO);
 
-      // agrupa por dia local
-      const map = new Map<
-        string,
-        { pago: number; aReceber: number; consultas: number; diaISO: string }
-      >();
+      const buckets = new Map<string, { pago: number; aReceber: number; consultas: number }>();
 
-      // pagamentos
       (pays ?? []).forEach(p => {
-        const d = parseISO(p.paid_at);
-        if (!d) return;
-        const key = ymdInTZ(d, tz);
-        const bucket = map.get(key) ?? { pago: 0, aReceber: 0, consultas: 0, diaISO: new Date(key).toISOString() };
-        bucket.pago += Number(p.amount_cents) || 0;
-        map.set(key, bucket);
+        const ymd = normalizeYMD(p.paid_at);
+        if (!ymd) return;
+        if (!["paid", "refunded", "chargeback"].includes(String(p.status || "").toLowerCase())) return;
+        const b = buckets.get(ymd) ?? { pago: 0, aReceber: 0, consultas: 0 };
+        b.pago += Number(p.amount_cents) || 0;
+        buckets.set(ymd, b);
       });
 
-      // consultas
       (appts ?? []).forEach(a => {
-        const d = parseISO(a.start_time);
-        if (!d) return;
-        const key = ymdInTZ(d, tz);
-        const bucket = map.get(key) ?? { pago: 0, aReceber: 0, consultas: 0, diaISO: new Date(key).toISOString() };
-        bucket.consultas += 1;
+        const ymd = normalizeYMD(a.start_time);
+        if (!ymd) return;
+        const b = buckets.get(ymd) ?? { pago: 0, aReceber: 0, consultas: 0 };
+        b.consultas += 1;
         const st = String(a.payment_status || "unpaid").toLowerCase();
-        if (st !== "paid") bucket.aReceber += Number(a.price_cents) || 0;
-        map.set(key, bucket);
+        if (st !== "paid") b.aReceber += Number(a.price_cents) || 0;
+        buckets.set(ymd, b);
       });
 
-      const computed = Array.from(map.entries())
+      const mapped: RowUI[] = Array.from(buckets.entries())
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-        .map(([_, v]) => ({
-          dia: v.diaISO,
-          total_pago_cents: v.pago,
-          total_a_receber_cents: v.aReceber,
-          total_consultas: v.consultas,
-        })) as ResumoRow[];
+        .map(([ymd, v]) => ({
+          key: ymd,
+          label: labelBR(ymd),
+          pago: v.pago,
+          aReceber: v.aReceber,
+          consultas: v.consultas,
+        }));
 
-      setRows(computed);
+      setRows(mapped);
       setLoading(false);
     })();
-  }, [supabase, fromISO, tz]);
+  }, [supabase, fromISO]);
 
   const totais = useMemo(() => {
     const list = rows ?? [];
     return {
-      pago: sum(list, r => r.total_pago_cents ?? 0),
-      aReceber: sum(list, r => r.total_a_receber_cents ?? 0),
-      consultas: sum(list, r => r.total_consultas ?? 0),
+      pago: list.reduce((acc, r) => acc + r.pago, 0),
+      aReceber: list.reduce((acc, r) => acc + r.aReceber, 0),
+      consultas: list.reduce((acc, r) => acc + r.consultas, 0),
     };
   }, [rows]);
 
@@ -176,11 +144,11 @@ export default function FinanceiroClient({ tz = "America/Sao_Paulo" }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader><CardTitle>Total pago (7 dias)</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{brlCents(totais.pago)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{centsBRL(totais.pago)}</CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>A receber (7 dias)</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{brlCents(totais.aReceber)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{centsBRL(totais.aReceber)}</CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Consultas (7 dias)</CardTitle></CardHeader>
@@ -188,11 +156,7 @@ export default function FinanceiroClient({ tz = "America/Sao_Paulo" }: Props) {
         </Card>
       </div>
 
-      {note && (
-        <div className="text-xs text-gray-500">
-          {note}
-        </div>
-      )}
+      {note && <div className="text-xs text-gray-500">{note}</div>}
 
       <Card>
         <CardHeader><CardTitle>Movimento por dia</CardTitle></CardHeader>
@@ -213,18 +177,14 @@ export default function FinanceiroClient({ tz = "America/Sao_Paulo" }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => {
-                    // evita “Invalid time value” no render
-                    const label = safeDateLabel(r.dia, tz);
-                    return (
-                      <tr key={i} className="border-b last:border-none">
-                        <td className="py-2 pr-4">{label}</td>
-                        <td className="py-2 pr-4">{brlCents(r.total_pago_cents)}</td>
-                        <td className="py-2 pr-4">{brlCents(r.total_a_receber_cents)}</td>
-                        <td className="py-2">{r.total_consultas ?? 0}</td>
-                      </tr>
-                    );
-                  })}
+                  {rows.map((r) => (
+                    <tr key={r.key} className="border-b last:border-none">
+                      <td className="py-2 pr-4">{r.label}</td>
+                      <td className="py-2 pr-4">{centsBRL(r.pago)}</td>
+                      <td className="py-2 pr-4">{centsBRL(r.aReceber)}</td>
+                      <td className="py-2">{r.consultas}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
