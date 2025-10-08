@@ -1,18 +1,18 @@
-// app/api/ocr/vision/route.ts
+// app/api/ocr/vision/route.ts — extração robusta de CPF (evita Nº REGISTRO) e RG
 // Next.js App Router API (Edge)
 // - Aceita JSON (imageBase64 | url) ou multipart/form-data (file)
 // - Usa Google Vision DOCUMENT_TEXT_DETECTION com hints pt/pt-BR
-// - Retorna campos extraídos (nome, cpf, data_nascimento) + rawText/confidence
+// - Retorna campos extraídos (nome, cpf, rg, data_nascimento) + rawText/confidence
 
 export const runtime = "edge";
 
 const VISION_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate";
 
-// Tipos simples de resposta
 interface Ok {
   parsed: {
     nome?: string;
     cpf?: string;
+    rg?: string;
     data_nascimento?: string; // dd/mm/aaaa
   };
   rawText: string;
@@ -46,7 +46,6 @@ export async function POST(req: Request): Promise<Response> {
       const file = (form.get("file") || form.get("image")) as File | null;
       if (!file) return bad({ error: "missing-file" });
 
-      // Recusa HEIC/HEIF explícito (cliente deve converter p/ JPEG)
       if (/heic|heif/i.test(file.type) || /\.heic$/i.test(file.name)) {
         return bad({ error: "heic-not-supported: envie JPEG/PNG" });
       }
@@ -91,9 +90,10 @@ export async function POST(req: Request): Promise<Response> {
     const normalized = normalize(text);
 
     const parsed: Ok["parsed"] = {
-      cpf: matchCPF(normalized) || undefined,
-      nome: matchNome(normalized) || undefined,
-      data_nascimento: matchNascimento(normalized) || undefined,
+      cpf: extractCPF(normalized) || undefined,
+      rg: extractRG(normalized) || undefined,
+      nome: extractNome(normalized) || undefined,
+      data_nascimento: extractNascimento(normalized) || undefined,
     };
 
     return ok({ parsed, rawText: text, confidence });
@@ -119,7 +119,6 @@ function toBase64(ab: ArrayBuffer) {
   const bytes = new Uint8Array(ab);
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  // btoa existe no runtime Edge
   return btoa(bin);
 }
 
@@ -130,25 +129,89 @@ function normalize(s: string) {
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function matchCPF(s: string) {
-  const m = s.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})\b/);
-  if (!m) return null;
-  const d = m[1].replace(/\D/g, "");
-  if (d.length !== 11) return null;
-  return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+/* ======= EXTRAÇÕES ESPECÍFICAS PARA CNH/CPF ======= */
+
+function formatCPF(d: string) {
+  const digits = d.replace(/\D/g, "");
+  if (digits.length !== 11) return null;
+  return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
-function matchNascimento(s: string) {
-  const m1 = s.match(/data\s*nasc(?:imento)?\s*[:\-]?\s*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i);
+function extractCPF(text: string) {
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const cpfRe = /(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/;
+
+  // 1) prioriza linha com rótulo CPF
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i].toUpperCase();
+    if (L.includes("CPF")) {
+      let m = lines[i].match(cpfRe);
+      if (m) return formatCPF(m[1]);
+      const next = lines[i + 1] || "";
+      if (next && !/REGISTRO|N\s*O\s*REG|DOC|IDENTIDAD/i.test(next.toUpperCase())) {
+        m = next.match(cpfRe);
+        if (m) return formatCPF(m[1]);
+      }
+    }
+  }
+  // 2) fallback: ignora linhas com "REGISTRO" (evita confundir Nº REGISTRO com CPF)
+  for (const l of lines) {
+    const U = l.toUpperCase();
+    if (/REGISTRO|N\s*O\s*REG/i.test(U)) continue;
+    const m = l.match(cpfRe);
+    if (m) return formatCPF(m[1]);
+  }
+  return null;
+}
+
+// ---------- RG helpers ----------
+const RG_PATTERNS: RegExp[] = [
+  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/,   // 12.345.678-9 ou 12345678-9
+  /\b\d{7,9}-?[0-9Xx]\b/,                 // 25099767-8
+  /\b\d{8,9}\b/,                          // 8-9 dígitos (fallback)
+];
+
+function _findRG(s: string): string | null {
+  for (const re of RG_PATTERNS) {
+    const m = s.match(re);
+    if (m) {
+      const just = (m[0].match(/[\d.\-Xx]+/) || [])[0];
+      return just?.toUpperCase() || null;
+    }
+  }
+  return null;
+}
+
+function extractRG(text: string) {
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  // 1) perto do rótulo
+  const idx = lines.findIndex((l) => /DOC\.?\s*IDENTIDADE|IDENTIDADE\/ORG|\bRG\b/i.test(l));
+  if (idx >= 0) {
+    const look = lines.slice(idx, idx + 4).join(" ");
+    const rg = _findRG(look);
+    if (rg) return rg;
+  }
+  // 2) varredura ignorando linhas com termos que confundem
+  for (const l of lines) {
+    if (/CPF|VALIDADE|HABILITA|REGISTRO|PERMISS|CATEG|EMISS/i.test(l)) continue;
+    const rg = _findRG(l);
+    if (rg) return rg;
+  }
+  return null;
+}
+
+function extractNascimento(text: string) {
+  const m1 = text.match(/data\s*nasc(?:imento)?\s*[:\-]?\s*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i);
   if (m1) return m1[1].replace(/-/g, "/");
-  const m2 = s.match(/\b(\d{2}[\/\-]\d{2}[\/\-]\d{4})\b/);
+  const m2 = text.match(/\b(\d{2}[\/\-]\d{2}[\/\-]\d{4})\b/);
   return m2 ? m2[1].replace(/-/g, "/") : null;
 }
 
-function matchNome(s: string) {
-  const m1 = s.match(/nome\s*[:\-]?\s*([A-Z ]{3,})/i);
+function extractNome(text: string) {
+  const m1 = text.match(/nome\s*[:\-]?\s*([A-Z ]{3,})/i);
   if (m1) return cleanupNome(m1[1]);
-  const m2 = s.match(/(?:\n|^)([A-Z ]{3,})\s*\n.*cpf/i);
+  // fallback: linha antes de CPF
+  const m2 = text.match(/(?:\n|^)([A-Z ]{3,})\s*\n.*cpf/i);
   if (m2) return cleanupNome(m2[1]);
   return null;
 }
