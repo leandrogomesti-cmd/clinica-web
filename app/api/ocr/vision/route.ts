@@ -1,6 +1,9 @@
 // app/api/ocr/vision/route.ts
 export const runtime = "nodejs";
 
+// Limite de payload para evitar timeouts/lentidão do Vision (~2MB após base64)
+const MAX_BASE64_BYTES = 2_000_000;
+
 const CNH_NOISE = [
   "VALIDA EM TODO O TERRITORIO NACIONAL",
   "REPÚBLICA FEDERATIVA DO BRASIL",
@@ -141,12 +144,16 @@ function parseCNH(text: string) {
   return out;
 }
 
+function sanitizeDataUrl(s: string) {
+  return s.startsWith("data:") ? s.split(",")[1] ?? "" : s;
+}
+
 async function readBase64FromRequest(req: Request): Promise<string> {
   const ct = req.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
     const b = await req.json().catch(() => ({} as any));
     let base64: string | undefined = b.imageBase64 || b.base64 || b.file;
-    if (base64?.startsWith("data:")) base64 = base64.split(",")[1];
+    base64 = sanitizeDataUrl(base64 || "");
     if (!base64) throw new Error("missing-image");
     return base64;
   }
@@ -154,6 +161,10 @@ async function readBase64FromRequest(req: Request): Promise<string> {
     const form = await req.formData();
     const file = form.get("file") as File | null;
     if (!file) throw new Error("file-missing");
+    // HEIC/HEIF costuma vir do iPhone e o Vision rejeita/perform mal
+    if (/heic|heif/i.test(file.type) || /\.hei[cf]$/i.test(file.name)) {
+      throw new Error("heic-not-supported");
+    }
     const buf = Buffer.from(await file.arrayBuffer());
     return buf.toString("base64");
   }
@@ -161,7 +172,7 @@ async function readBase64FromRequest(req: Request): Promise<string> {
   try {
     const b = JSON.parse(txt);
     let base64: string | undefined = b.imageBase64 || b.base64 || b.file;
-    if (base64?.startsWith("data:")) base64 = base64.split(",")[1];
+    base64 = sanitizeDataUrl(base64 || "");
     if (!base64) throw new Error("missing-image");
     return base64;
   } catch {
@@ -176,6 +187,12 @@ export async function POST(req: Request) {
 
     const content = await readBase64FromRequest(req);
 
+    // Guard-rail de tamanho para não estourar o Vision
+    const approxBytes = Math.ceil(content.length * 0.75);
+    if (approxBytes > MAX_BASE64_BYTES) {
+      return Response.json({ error: "payload-too-large" }, { status: 413 });
+    }
+
     const gRes = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,10 +201,17 @@ export async function POST(req: Request) {
           {
             image: { content },
             features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+            // Ajuda o OCR a priorizar português/BR
+            imageContext: { languageHints: ["pt", "pt-BR"] },
           },
         ],
       }),
     });
+
+    if (!gRes.ok) {
+      const t = await gRes.text().catch(() => "");
+      return Response.json({ error: `vision-failed:${gRes.status}:${t.slice(0,180)}` }, { status: 502 });
+    }
 
     const gData = await gRes.json();
     const text =
@@ -195,10 +219,33 @@ export async function POST(req: Request) {
       gData?.responses?.[0]?.textAnnotations?.[0]?.description ??
       "";
 
-    const parsed = parseCNH(text || "");
-    return Response.json({ parsed, rawText: text });
+    if (!text) {
+      return Response.json({ parsed: {}, rawText: "" }, { status: 200 });
+    }
+
+    const confidence = avgConfidence(gData?.responses?.[0]);
+    const parsedRaw = parseCNH(text || "");
+
+    // Compatibilidade: expõe também "nome" e "data_nascimento"
+    const parsed = {
+      ...parsedRaw,
+      nome: (parsedRaw as any).full_name ?? (parsedRaw as any).nome,
+      data_nascimento: (parsedRaw as any).birth_date ?? (parsedRaw as any).data_nascimento,
+    } as Record<string, string>;
+
+    return Response.json({ parsed, rawText: text, confidence });
   } catch (err: any) {
     const msg = err?.message || "ocr-failed";
     return Response.json({ error: msg }, { status: msg.includes("missing") ? 400 : 500 });
   }
+}
+
+function avgConfidence(anno: any) {
+  try {
+    const blocks = anno?.fullTextAnnotation?.pages?.[0]?.blocks ?? [];
+    const confs: number[] = [];
+    for (const b of blocks) if (typeof b.confidence === "number") confs.push(b.confidence);
+    if (!confs.length) return undefined;
+    return confs.reduce((a, b) => a + b, 0) / confs.length;
+  } catch { return undefined; }
 }
