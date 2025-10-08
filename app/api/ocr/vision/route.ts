@@ -1,4 +1,4 @@
-// app/api/ocr/vision/route.ts — extração robusta de CPF (evita Nº REGISTRO) e RG
+// app/api/ocr/vision/route.ts — CPF/RG robusto (prioriza rótulo "CPF" e evita Nº REGISTRO)
 // Next.js App Router API (Edge)
 // - Aceita JSON (imageBase64 | url) ou multipart/form-data (file)
 // - Usa Google Vision DOCUMENT_TEXT_DETECTION com hints pt/pt-BR
@@ -129,7 +129,7 @@ function normalize(s: string) {
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-/* ======= EXTRAÇÕES ESPECÍFICAS PARA CNH/CPF ======= */
+/* ======= EXTRAÇÕES ESPECÍFICAS ======= */
 
 function formatCPF(d: string) {
   const digits = d.replace(/\D/g, "");
@@ -141,30 +141,35 @@ function extractCPF(text: string) {
   const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const cpfRe = /(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})/;
 
+  const isRegistroish = (u: string) => /(REGIST|N[º°o]?\s*REG)/i.test(u);
+
   // 1) prioriza linha com rótulo CPF
   for (let i = 0; i < lines.length; i++) {
-    const L = lines[i].toUpperCase();
-    if (L.includes("CPF")) {
-      let m = lines[i].match(cpfRe);
-      if (m) return formatCPF(m[1]);
+    const L = lines[i];
+    const U = L.toUpperCase();
+    if (U.includes("CPF")) {
+      let m = L.match(cpfRe);
+      if (m && !isRegistroish(U)) return formatCPF(m[1]);
       const next = lines[i + 1] || "";
-      if (next && !/REGISTRO|N\s*O\s*REG|DOC|IDENTIDAD/i.test(next.toUpperCase())) {
+      const UN = next.toUpperCase();
+      if (next && !isRegistroish(UN)) {
         m = next.match(cpfRe);
         if (m) return formatCPF(m[1]);
       }
     }
   }
-  // 2) fallback: ignora linhas com "REGISTRO" (evita confundir Nº REGISTRO com CPF)
-  for (const l of lines) {
-    const U = l.toUpperCase();
-    if (/REGISTRO|N\s*O\s*REG/i.test(U)) continue;
-    const m = l.match(cpfRe);
+
+  // 2) fallback: procura CPF ignorando linhas que parecem "Nº REGISTRO"
+  for (const L of lines) {
+    const U = L.toUpperCase();
+    if (isRegistroish(U)) continue; // evita 022.756.783-78 etc.
+    const m = L.match(cpfRe);
     if (m) return formatCPF(m[1]);
   }
   return null;
 }
 
-// ---------- RG helpers ----------
+// ---------- RG ----------
 const RG_PATTERNS: RegExp[] = [
   /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/,   // 12.345.678-9 ou 12345678-9
   /\b\d{7,9}-?[0-9Xx]\b/,                 // 25099767-8
