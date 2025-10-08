@@ -1,4 +1,4 @@
-// app/autocadastro/page.tsx — "Ler documento" no cabeçalho (versão completa)
+// app/autocadastro/page.tsx — mapeado para pacientes_intake (corrigido)
 "use client";
 
 import { useRef, useState } from "react";
@@ -59,11 +59,31 @@ async function normalizeMobilePhoto(file: File, targetBytes = 2_800_000) {
   return { file: out, base64, bytes };
 }
 
+// Helpers de normalização/enum
+function onlyDigits(s = "") { return s.replace(/\D+/g, ""); }
+function mapSexo(v: string): "MASCULINO" | "FEMININO" | "OUTRO" | undefined {
+  if (!v) return undefined;
+  const x = v.toLowerCase();
+  if (x === "masculino") return "MASCULINO";
+  if (x === "feminino") return "FEMININO";
+  if (x === "outro") return "OUTRO";
+  return undefined; // nao_informar => omite p/ cair no DEFAULT do banco
+}
+function mapEstadoCivil(v: string): "SOLTEIRO" | "CASADO" | "DIVORCIADO" | "VIUVO" | "UNIAO_ESTAVEL" | undefined {
+  if (!v) return undefined;
+  const x = v.toLowerCase();
+  if (x === "solteiro") return "SOLTEIRO";
+  if (x === "casado") return "CASADO";
+  if (x === "divorciado") return "DIVORCIADO";
+  if (x === "viuvo") return "VIUVO";
+  if (x === "uniao_estavel") return "UNIAO_ESTAVEL";
+  return undefined; // nao_informar => omite p/ cair no DEFAULT do banco
+}
+
 export default function AutocadastroPage() {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Abrir seletor SEM "capture" para oferecer: Fototeca / Tirar foto / Arquivo
   const openPicker = () => {
     const input = fileRef.current;
     if (!input) return;
@@ -78,7 +98,7 @@ export default function AutocadastroPage() {
     nome: "",
     cpf: "",
     rg: "",
-    birth_date: "", // ISO yyyy-mm-dd
+    data_nascimento: "", // ISO yyyy-mm-dd (mapeia p/ coluna data_nascimento)
     estado_civil: "",
     sexo: "",
     telefone: "",
@@ -101,25 +121,29 @@ export default function AutocadastroPage() {
     e.preventDefault();
     setSending(true);
     try {
-      // Insere intake — RLS permite anon INSERT
-      const { error } = await supabase.from("pacientes_intake").insert({
-        nome: form.nome || null,
-        cpf: form.cpf || null,
-        rg: form.rg || null,
-        birth_date: form.birth_date || null,
-        estado_civil: form.estado_civil || null,
-        sexo: form.sexo || null,
-        telefone: form.telefone || null,
-        email: form.email || null,
-        profissao: form.profissao || null,
-        cep: form.cep || null,
-        cidade: form.cidade || null,
-        bairro: form.bairro || null,
-        logradouro: form.logradouro || null,
-        numero: form.numero || null,
-        complemento: form.complemento || null,
-        observacoes: form.observacoes || null,
-      });
+      // Monta payload apenas com colunas existentes e valores definidos
+      const payload: Record<string, any> = {};
+      const cpfDigits = onlyDigits(form.cpf);
+      if (form.nome) payload.nome = form.nome;
+      if (cpfDigits.length === 11) payload.cpf = cpfDigits; // evita reprovação no CHECK
+      if (form.rg) payload.rg = form.rg;
+      if (form.data_nascimento) payload.data_nascimento = form.data_nascimento;
+      const sexoDb = mapSexo(form.sexo);
+      if (sexoDb) payload.sexo = sexoDb; // se não selecionar, cai no DEFAULT (NAO_INFORMADO)
+      const ecDb = mapEstadoCivil(form.estado_civil);
+      if (ecDb) payload.estado_civil = ecDb; // idem
+      if (form.telefone) payload.telefone = form.telefone;
+      if (form.email) payload.email = form.email;
+      if (form.profissao) payload.profissao = form.profissao;
+      if (form.cep) payload.cep = form.cep;
+      if (form.cidade) payload.cidade = form.cidade;
+      if (form.bairro) payload.bairro = form.bairro;
+      if (form.logradouro) payload.logradouro = form.logradouro;
+      if (form.numero) payload.numero = form.numero;
+      if (form.complemento) payload.complemento = form.complemento;
+      if (form.observacoes) payload.observacoes = form.observacoes;
+
+      const { error } = await supabase.from("pacientes_intake").insert(payload);
 
       if (error) alert(error.message);
       else {
@@ -134,11 +158,9 @@ export default function AutocadastroPage() {
   async function handleOCR(file: File) {
     setOcrLoading(true);
     try {
-      // 1) Normaliza imagem (corrige orientação HEIC/EXIF e reduz tamanho)
       const normalized = await normalizeMobilePhoto(file);
       const imageBase64 = normalized.base64;
 
-      // 2) Tenta JSON (base64)
       let res = await fetch("/api/ocr/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,7 +170,6 @@ export default function AutocadastroPage() {
       let data: any;
       try { data = await res.json(); } catch { data = null; }
 
-      // 3) Fallback para multipart (caso servidor exija URL/arquivo)
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
         const f = new FormData();
         f.append("file", normalized.file);
@@ -158,10 +179,8 @@ export default function AutocadastroPage() {
 
       if (data?.error) throw new Error(String(data.error));
 
-      // O endpoint retorna { parsed, rawText }
       const parsed = data?.parsed ?? data;
 
-      // Aceitar diferentes chaves (nome/name, data_nascimento/birth_date, etc.)
       const nome = parsed?.nome ?? parsed?.name ?? parsed?.NOME;
       const cpf = parsed?.cpf ?? parsed?.CPF;
       const rg = parsed?.rg ?? parsed?.RG ?? parsed?.registro;
@@ -172,7 +191,7 @@ export default function AutocadastroPage() {
         nome: nome ?? prev.nome,
         cpf: cpf ?? prev.cpf,
         rg: rg ?? prev.rg,
-        birth_date: nasc ? toISO(nasc) : prev.birth_date,
+        data_nascimento: nasc ? toISO(nasc) : prev.data_nascimento,
       }));
 
       alert("Dados lidos do documento. Confira os campos.");
@@ -193,7 +212,6 @@ export default function AutocadastroPage() {
             <Button type="button" onClick={openPicker} disabled={ocrLoading}>
               {ocrLoading ? "Lendo…" : "Ler documento"}
             </Button>
-            {/* input oculto que abre galeria/câmera */}
             <input
               ref={fileRef}
               type="file"
@@ -226,7 +244,7 @@ export default function AutocadastroPage() {
               </div>
               <div>
                 <label className="text-sm">Data de nascimento</label>
-                <Input type="date" value={form.birth_date} onChange={(e) => setField("birth_date", e.target.value)} />
+                <Input type="date" value={form.data_nascimento} onChange={(e) => setField("data_nascimento", e.target.value)} />
               </div>
             </div>
 
@@ -257,6 +275,7 @@ export default function AutocadastroPage() {
                   <option value="divorciado">Divorciado(a)</option>
                   <option value="viuvo">Viúvo(a)</option>
                   <option value="uniao_estavel">União estável</option>
+                  <option value="nao_informar">Prefiro não informar</option>
                 </select>
               </div>
               <div>
@@ -326,10 +345,8 @@ export default function AutocadastroPage() {
 /** Converte vários formatos de data BR/ISO para yyyy-mm-dd */
 function toISO(x?: string) {
   if (!x) return "";
-  // já em ISO
-  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x;
-  // dd/mm/aaaa
-  const m = x.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x; // já em ISO
+  const m = x.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/); // dd/mm/aaaa
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return "";
 }
