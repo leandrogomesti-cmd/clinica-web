@@ -13,25 +13,50 @@ import { Textarea } from "@/components/ui/textarea";
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => {
-      const s = String(r.result || "");
-      resolve(s);
-    };
+    r.onload = () => resolve(String(r.result || ""));
     r.onerror = (e) => reject(e);
     r.readAsDataURL(file);
   });
 }
 
-/** Compressão/normalização para mobile (corrige EXIF e força JPEG) */
-async function normalizeMobilePhoto(file: File) {
-  const out = await imageCompression(file, {
+/** Compressão/normalização para mobile (corrige EXIF, força JPEG)
+ *  Faz passes progressivos até ficar < ~2.8MB de base64 (≈ 2.1MB binário)
+ */
+async function normalizeMobilePhoto(file: File, targetBytes = 2_800_000) {
+  // 1ª passada (boa qualidade e 1800px)
+  let out = await imageCompression(file, {
     maxWidthOrHeight: 1800,
     maxSizeMB: 1.5,
     initialQuality: 0.82,
     useWebWorker: true,
     fileType: "image/jpeg",
   });
-  return out;
+
+  let base64 = await fileToBase64(out);
+  let bytes = Math.ceil(base64.length * 0.75);
+
+  // Passes adicionais, só se necessário
+  const steps = [
+    { max: 1600, q: 0.75 },
+    { max: 1400, q: 0.70 },
+    { max: 1200, q: 0.65 },
+    { max: 1000, q: 0.60 },
+  ];
+
+  for (const s of steps) {
+    if (bytes <= targetBytes) break;
+    out = await imageCompression(file, {
+      maxWidthOrHeight: s.max,
+      maxSizeMB: 1,
+      initialQuality: s.q,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+    });
+    base64 = await fileToBase64(out);
+    bytes = Math.ceil(base64.length * 0.75);
+  }
+
+  return { file: out, base64, bytes };
 }
 
 export default function AutocadastroPage() {
@@ -103,7 +128,7 @@ export default function AutocadastroPage() {
     try {
       // 1) Normaliza imagem (corrige orientação HEIC/EXIF e reduz tamanho)
       const normalized = await normalizeMobilePhoto(file);
-      const imageBase64 = await fileToBase64(normalized);
+      const imageBase64 = normalized.base64;
 
       // 2) Tenta JSON (base64)
       let res = await fetch("/api/ocr/vision", {
@@ -118,7 +143,7 @@ export default function AutocadastroPage() {
       // 3) Fallback para multipart (caso servidor exija URL/arquivo)
       if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
         const f = new FormData();
-        f.append("file", normalized);
+        f.append("file", normalized.file);
         res = await fetch("/api/ocr/vision", { method: "POST", body: f });
         data = await res.json();
       }
@@ -208,35 +233,38 @@ export default function AutocadastroPage() {
             </div>
 
             {/* Dados complementares */}
-<div>
-  <label className="text-sm">Estado civil</label>
-  <select
-    className="w-full border rounded-md h-10 px-3 text-sm"
-    value={form.estado_civil}
-    onChange={(e) => setField("estado_civil", e.target.value)}
-  >
-    <option value="" disabled>Selecione</option>
-    <option value="solteiro">Solteiro(a)</option>
-    <option value="casado">Casado(a)</option>
-    <option value="divorciado">Divorciado(a)</option>
-    <option value="viuvo">Viúvo(a)</option>
-    <option value="uniao_estavel">União estável</option>
-  </select>
-</div>
-<div>
-  <label className="text-sm">Sexo</label>
-  <select
-    className="w-full border rounded-md h-10 px-3 text-sm"
-    value={form.sexo}
-    onChange={(e) => setField("sexo", e.target.value)}
-  >
-    <option value="" disabled>Selecione</option>
-    <option value="feminino">Feminino</option>
-    <option value="masculino">Masculino</option>
-    <option value="outro">Outro</option>
-    <option value="nao_informar">Prefiro não informar</option>
-  </select>
-</div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm">Estado civil</label>
+                <select
+                  className="w-full border rounded-md h-10 px-3 text-sm"
+                  value={form.estado_civil}
+                  onChange={(e) => setField("estado_civil", e.target.value)}
+                >
+                  <option value="" disabled>Selecione</option>
+                  <option value="solteiro">Solteiro(a)</option>
+                  <option value="casado">Casado(a)</option>
+                  <option value="divorciado">Divorciado(a)</option>
+                  <option value="viuvo">Viúvo(a)</option>
+                  <option value="uniao_estavel">União estável</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm">Sexo</label>
+                <select
+                  className="w-full border rounded-md h-10 px-3 text-sm"
+                  value={form.sexo}
+                  onChange={(e) => setField("sexo", e.target.value)}
+                >
+                  <option value="" disabled>Selecione</option>
+                  <option value="feminino">Feminino</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="outro">Outro</option>
+                  <option value="nao_informar">Prefiro não informar</option>
+                </select>
+              </div>
+            </div>
+
             {/* Endereço */}
             <div className="grid md:grid-cols-2 gap-3">
               <div>
