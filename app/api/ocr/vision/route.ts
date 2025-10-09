@@ -46,11 +46,18 @@ function ok(body: Ok) {
   });
 }
 
-function toBase64(ab: ArrayBuffer) {
+function base64FromArrayBuffer(ab: ArrayBuffer) {
+  // Converte ArrayBuffer -> base64 (compatível com Edge)
   let binary = "";
   const bytes = new Uint8Array(ab);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk)) as unknown as number[]
+    );
+  }
+  // btoa existe no Edge runtime
   // eslint-disable-next-line no-undef
   return btoa(binary);
 }
@@ -64,7 +71,8 @@ function normalizeSpaces(s: string) {
 }
 
 function stripAccents(s: string) {
-  return (s || "").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  // Sem usar \p{Diacritic} (evita incompatibilidade no Edge)
+  return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 // ---------- CPF ----------
@@ -92,7 +100,7 @@ function formatCPF(value: string) {
 }
 
 function extractCPF(text: string) {
-  // 1) procure com rótulo
+  // 1) com rótulo
   const cpfLabelRegex =
     /(?:\bCPF\b|CADASTRO DE PESSOAS F[IÍ]SICAS|N[º°]?\s*DE\s*INSCRI[ÇC][AÃ]O)[^\d]{0,30}(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})/i;
   const m1 = text.match(cpfLabelRegex);
@@ -108,17 +116,12 @@ function extractCPF(text: string) {
   return undefined;
 }
 
-// ---------- RG (com contexto, evitando falsos positivos em CPF) ----------
+// ---------- RG (apenas com contexto, evitando falso-positivo em CPF) ----------
 function formatRG(value: string) {
-  // RGs variam muito. Mantemos só dígitos + X e removemos lixo.
   const cleaned = (value || "").toUpperCase().replace(/[^0-9X]/g, "");
   return cleaned;
 }
 
-/**
- * Extrai RG somente quando houver contexto claro (RG/Identidade etc.).
- * Isso evita capturar a parte "226815228" do "Nº de Inscrição 226815228-62" do cartão de CPF.
- */
 function extractRG(text: string) {
   const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
 
@@ -126,31 +129,26 @@ function extractRG(text: string) {
     text
   );
 
-  // Padrões de contexto para RG
-  const ctx = /\b(?:RG|R\.G\.|REGISTRO\s+GERAL|IDENTIDADE|CARTEIRA\s+DE\s+IDENTIDADE|ÓRG[ÃA]O\s+EMISSOR|ORGAO\s+EMISSOR|SSP(?:\/[A-Z]{2})?)\b/i;
+  // Rótulos típicos de RG/Identidade
+  const ctx =
+    /\b(?:RG|R\.G\.|REGISTRO\s+GERAL|IDENTIDADE|CARTEIRA\s+DE\s+IDENTIDADE|ÓRG[ÃA]O\s+EMISSOR|ORGAO\s+EMISSOR|SSP(?:\/[A-Z]{2})?)\b/i;
 
-  // Padrão numérico típico de RG (permite X no final)
-  const rgNum = /(\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx}])|(\b\d{5,12}[Xx]?\b)/;
-
-  // Percorre linhas: se houver contexto, tenta achar número nesta ou na próxima linha
   for (let i = 0; i < lines.length; i++) {
     if (ctx.test(lines[i])) {
-      // Procura número na mesma linha
-      const sameLine = lines[i].match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
+      const sameLine =
+        lines[i].match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
       if (sameLine) return formatRG(sameLine[1]);
 
-      // …ou na linha seguinte
       const next = lines[i + 1] || "";
-      const nextLine = next.match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
+      const nextLine =
+        next.match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
       if (nextLine) return formatRG(nextLine[1]);
     }
   }
 
-  // Sem contexto? então NÃO devolve RG (especialmente em cartões de CPF)
+  // Sem contexto e com fortes marcadores de CPF no documento? não retorna RG
   if (hasStrongCPFMarkers) return undefined;
 
-  // Opcional: como último recurso (desativado para evitar falsos-positivos)
-  // return undefined;
   return undefined;
 }
 
@@ -180,7 +178,7 @@ function extractNascimento(text: string) {
   const meses =
     "jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
   const r2 = new RegExp(
-    String.raw`\b(\d{1,2})\s+de\s+(${meses})\.?,?\s+de\s+(\d{2,4})\b`,
+    String.raw`(\b\d{1,2})\s+de\s+(${meses})\.?,?\s+de\s+(\d{2,4})\b`,
     "i"
   );
   const m2 = text.match(r2);
@@ -226,11 +224,13 @@ function extractNascimento(text: string) {
 
 // ---------- Nome ----------
 function extractNome(text: string) {
-  // Busca padrão "Nome <linha>"
-  const m = text.match(/(?:\bNOME\b|^NOME\s*:?)\s*([A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{2,})/m);
-  if (m) {
-    const n = m[1];
-    return normalizeSpaces(n.replace(/\s+/g, " ").replace(/[^A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]/g, ""));
+  // busca "Nome <valor>"
+  const labeled = text.match(/(?:\bNOME\b|^NOME\s*:?)\s*([A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{2,})/m);
+  if (labeled) {
+    const n = labeled[1];
+    return normalizeSpaces(
+      n.replace(/\s+/g, " ").replace(/[^A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]/g, "")
+    );
   }
 
   // fallback: primeira linha toda em CAPS que pareça nome
@@ -238,7 +238,9 @@ function extractNome(text: string) {
   for (const l of lines) {
     if (
       /^[A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{6,}$/.test(l) &&
-      !/\b(CPF|CADASTRO|N[º°]\s*DE\s*INSCRI|SECRETARIA|REPÚBLICA|MINIST[EÉ]RIO|BRASIL)\b/i.test(l)
+      !/\b(CPF|CADASTRO|N[º°]\s*DE\s*INSCRI|SECRETARIA|REP[ÚU]BLICA|MINIST[EÉ]RIO|BRASIL)\b/i.test(
+        l
+      )
     ) {
       return l;
     }
@@ -251,7 +253,8 @@ function avgConfidence(anno: any) {
   try {
     const blocks = anno?.fullTextAnnotation?.pages?.[0]?.blocks ?? [];
     const confs: number[] = [];
-    for (const b of blocks) if (typeof b.confidence === "number") confs.push(b.confidence);
+    for (const b of blocks)
+      if (typeof b.confidence === "number") confs.push(b.confidence);
     if (!confs.length) return undefined;
     return confs.reduce((a, b) => a + b, 0) / confs.length;
   } catch {
@@ -263,7 +266,8 @@ function avgConfidence(anno: any) {
 export async function POST(req: Request) {
   try {
     const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-    if (!apiKey) return bad({ error: "missing-env: GOOGLE_CLOUD_VISION_API_KEY" }, 500);
+    if (!apiKey)
+      return bad({ error: "missing-env: GOOGLE_CLOUD_VISION_API_KEY" }, 500);
 
     let base64: string | undefined;
     let imageUri: string | undefined;
@@ -271,7 +275,8 @@ export async function POST(req: Request) {
     const ctype = req.headers.get("content-type") || "";
     if (ctype.includes("application/json")) {
       const body = (await req.json()) as JsonIn;
-      if (body?.imageBase64) base64 = body.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      if (body?.imageBase64)
+        base64 = body.imageBase64.replace(/^data:image\/\w+;base64,/, "");
       else if (body?.url) imageUri = body.url;
     } else if (ctype.includes("multipart/form-data")) {
       const form = await req.formData();
@@ -281,11 +286,18 @@ export async function POST(req: Request) {
         return bad({ error: "heic-not-supported: envie JPEG/PNG" });
       }
       const ab = await file.arrayBuffer();
-      base64 = toBase64(ab);
+      base64 = base64FromArrayBuffer(ab);
+    } else {
+      // fallback: tentar ler como binário puro (caso libs mandem sem header correto)
+      const ab = await req.arrayBuffer();
+      if (ab && ab.byteLength) base64 = base64FromArrayBuffer(ab);
     }
 
     if (!base64 && !imageUri) {
-      return bad({ error: "missing-input: informe imageBase64, url ou multipart file" });
+      return bad(
+        { error: "missing-input: informe imageBase64, url ou multipart file" },
+        400
+      );
     }
 
     // Guard-rail de tamanho (~3MB pós-base64)
@@ -328,7 +340,7 @@ export async function POST(req: Request) {
     const rawText = text;
     const parsed: Ok["parsed"] = {
       cpf: extractCPF(text),
-      rg: extractRG(text), // <- agora com contexto
+      rg: extractRG(text), // com contexto, não “chuta” RG em cartão de CPF
       data_nascimento: extractNascimento(text),
       nome: extractNome(text),
     };
@@ -339,6 +351,6 @@ export async function POST(req: Request) {
       confidence: avgConfidence(anno),
     });
   } catch (e) {
-    return bad({ error: "internal-error", details: `${e}` }, 500);
+    return bad({ error: "internal-error", details: String(e) }, 500);
   }
 }
