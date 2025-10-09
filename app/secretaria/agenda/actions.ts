@@ -2,7 +2,7 @@
 "use server";
 
 import { z } from "zod";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { createServerClient } from "@/lib/supabase/server";
 
 const SlotSchema = z.object({
   doctor_id: z.string().uuid(),
@@ -12,7 +12,7 @@ const SlotSchema = z.object({
 });
 
 async function requireStaff() {
-  const supabase = createSupabaseServer();
+  const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Auth required");
   const { data: profile } = await supabase

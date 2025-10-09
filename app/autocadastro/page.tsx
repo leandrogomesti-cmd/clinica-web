@@ -1,330 +1,357 @@
+// app/autocadastro/page.tsx — mapeado para pacientes_intake (corrigido + telefone_whatsapp NOT NULL)
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { pacienteIntakeSchema, type PacienteIntakeInput } from "./schema";
-import { supabase } from "@/lib/supabase";
+import { useRef, useState } from "react";
+import imageCompression from "browser-image-compression";
+import { createClient } from "@/lib/supabase/client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 
-const UFs = [
-  "AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT",
-  "PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"
-];
+/** Util: arquivo -> base64 */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = (e) => reject(e);
+    r.readAsDataURL(file);
+  });
+}
 
-export default function CadastroPage() {
-  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(null);
-  const [ocrOpen, setOcrOpen] = useState(false);
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const [ocrError, setOcrError] = useState<string | null>(null);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    reset,
-    setValue,
-  } = useForm<PacienteIntakeInput>({
-    resolver: zodResolver(pacienteIntakeSchema),
-    defaultValues: {
-      sexo: "NAO_INFORMADO",
-      estado_civil: "NAO_INFORMADO",
-    },
+/** Compressão/normalização para mobile (corrige EXIF, força JPEG)
+ *  Faz passes progressivos até ficar < ~2.8MB de base64 (≈ 2.1MB binário)
+ */
+async function normalizeMobilePhoto(file: File, targetBytes = 2_800_000) {
+  // 1ª passada (boa qualidade e 1800px)
+  let out = await imageCompression(file, {
+    maxWidthOrHeight: 1800,
+    maxSizeMB: 1.5,
+    initialQuality: 0.82,
+    useWebWorker: true,
+    fileType: "image/jpeg",
   });
 
-  const onSubmit = async (data: PacienteIntakeInput) => {
-    setStatus(null);
-    try {
-      const onlyDigits = (s?: string) => (s ? s.replace(/\D/g, "") : s);
+  let base64 = await fileToBase64(out);
+  let bytes = Math.ceil(base64.length * 0.75);
 
-      const payload = {
-        ...data,
-        telefone_whatsapp: onlyDigits(data.telefone_whatsapp),
-        telefone_fixo: onlyDigits(data.telefone_fixo),
-        cpf: data.cpf ? data.cpf.replace(/\D/g, "") : null,
-        estado: data.estado?.toUpperCase() ?? null,
-        data_nascimento: data.data_nascimento || null,
-        validade_carteirinha: data.validade_carteirinha || null,
-      };
+  // Passes adicionais, só se necessário
+  const steps = [
+    { max: 1600, q: 0.75 },
+    { max: 1400, q: 0.70 },
+    { max: 1200, q: 0.65 },
+    { max: 1000, q: 0.60 },
+  ];
 
-      const { error } = await supabase.from("pacientes_intake").insert(payload);
-      if (error) throw error;
+  for (const s of steps) {
+    if (bytes <= targetBytes) break;
+    out = await imageCompression(file, {
+      maxWidthOrHeight: s.max,
+      maxSizeMB: 1,
+      initialQuality: s.q,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+    });
+    base64 = await fileToBase64(out);
+    bytes = Math.ceil(base64.length * 0.75);
+  }
 
-      setStatus({ ok: true, msg: "Cadastro enviado com sucesso! Aguarde confirmação." });
-      reset();
-    } catch (e: any) {
-      setStatus({ ok: false, msg: e.message || "Falha ao enviar cadastro." });
-    }
+  return { file: out, base64, bytes };
+}
+
+// Helpers de normalização/enum
+function onlyDigits(s = "") { return s.replace(/\D+/g, ""); }
+function mapSexo(v: string): "MASCULINO" | "FEMININO" | "OUTRO" | undefined {
+  if (!v) return undefined;
+  const x = v.toLowerCase();
+  if (x === "masculino") return "MASCULINO";
+  if (x === "feminino") return "FEMININO";
+  if (x === "outro") return "OUTRO";
+  return undefined; // nao_informar => omite p/ cair no DEFAULT do banco
+}
+function mapEstadoCivil(v: string): "SOLTEIRO" | "CASADO" | "DIVORCIADO" | "VIUVO" | "UNIAO_ESTAVEL" | undefined {
+  if (!v) return undefined;
+  const x = v.toLowerCase();
+  if (x === "solteiro") return "SOLTEIRO";
+  if (x === "casado") return "CASADO";
+  if (x === "divorciado") return "DIVORCIADO";
+  if (x === "viuvo") return "VIUVO";
+  if (x === "uniao_estavel") return "UNIAO_ESTAVEL";
+  return undefined; // nao_informar => omite p/ cair no DEFAULT do banco
+}
+
+export default function AutocadastroPage() {
+  const supabase = createClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const openPicker = () => {
+    const input = fileRef.current;
+    if (!input) return;
+    input.removeAttribute("capture");
+    input.click();
   };
 
-  async function handleOCRSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const [form, setForm] = useState({
+    nome: "",
+    cpf: "",
+    rg: "",
+    data_nascimento: "", // ISO yyyy-mm-dd (mapeia p/ coluna data_nascimento)
+    estado_civil: "",
+    sexo: "",
+    telefone: "",
+    email: "",
+    profissao: "",
+    cep: "",
+    cidade: "",
+    bairro: "",
+    logradouro: "",
+    numero: "",
+    complemento: "",
+    observacoes: "",
+  });
+
+  function setField<K extends keyof typeof form>(key: K, v: (typeof form)[K]) {
+    setForm((prev) => ({ ...prev, [key]: v }));
+  }
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setOcrError(null);
-    setOcrBusy(true);
-
+    setSending(true);
     try {
-      const file = (e.currentTarget.elements.namedItem("file") as HTMLInputElement).files?.[0];
-      if (!file) throw new Error("Selecione um arquivo de imagem");
+      // Monta payload apenas com colunas existentes e valores definidos
+      const payload: Record<string, any> = {};
+      const cpfDigits = onlyDigits(form.cpf);
+      if (form.nome) payload.nome = form.nome;
+      if (cpfDigits.length === 11) payload.cpf = cpfDigits; // evita reprovação no CHECK
+      if (form.rg) payload.rg = form.rg;
+      if (form.data_nascimento) payload.data_nascimento = form.data_nascimento;
+      const sexoDb = mapSexo(form.sexo);
+      if (sexoDb) payload.sexo = sexoDb; // se não selecionar, cai no DEFAULT (NAO_INFORMADO)
+      const ecDb = mapEstadoCivil(form.estado_civil);
+      if (ecDb) payload.estado_civil = ecDb; // idem
+      // Telefones – a tabela tem telefone_whatsapp (NOT NULL).
+      // Para não violar o NOT NULL, sempre mandamos ao menos string vazia.
+      payload.telefone_whatsapp = form.telefone || "";
+      if (form.telefone) payload.telefone = form.telefone;
+      // Se quiser reusar como telefone_fixo quando informado:
+      // if (form.telefone) payload.telefone_fixo = form.telefone;
+      if (form.email) payload.email = form.email;
+      if (form.profissao) payload.profissao = form.profissao;
+      if (form.cep) payload.cep = form.cep;
+      if (form.cidade) payload.cidade = form.cidade;
+      if (form.bairro) payload.bairro = form.bairro;
+      if (form.logradouro) payload.logradouro = form.logradouro;
+      if (form.numero) payload.numero = form.numero;
+      if (form.complemento) payload.complemento = form.complemento;
+      if (form.observacoes) payload.observacoes = form.observacoes;
 
-      // Subir para prefixo público com RLS segura (public_intake/)
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const path = `public_intake/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.from("pacientes_intake").insert(payload);
 
-      const up = await supabase.storage.from("patient_documents").upload(path, file, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
-      if (up.error) throw up.error;
-
-      const signed = await supabase.storage
-        .from("patient_documents")
-        .createSignedUrl(path, 60 * 5);
-      if (signed.error || !signed.data?.signedUrl) {
-        throw signed.error || new Error("Falha ao assinar URL");
+      if (error) alert(error.message);
+      else {
+        alert("Cadastro enviado!");
+        (e.currentTarget as HTMLFormElement).reset();
       }
+    } finally {
+      setSending(false);
+    }
+  }
 
-      // Chama OCR e pré-preenche o formulário
-      const resp = await fetch("/api/ocr/vision", {
+  async function handleOCR(file: File) {
+    setOcrLoading(true);
+    try {
+      const normalized = await normalizeMobilePhoto(file);
+      const imageBase64 = normalized.base64;
+
+      let res = await fetch("/api/ocr/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: signed.data.signedUrl }),
+        body: JSON.stringify({ imageBase64 }),
       });
-      const data = await resp.json();
 
-      if (!resp.ok || !data?.ok) {
-        // Exibe erro detalhado quando houver (status/body)
-        const det = data?.error
-          ? `${data.error}${data.status ? ` (${data.status})` : ""}`
-          : "Falha no OCR";
-        throw new Error(det);
+      let data: any;
+      try { data = await res.json(); } catch { data = null; }
+
+      if (!res.ok && (data?.error?.includes?.("missing-url") || data?.error === "missing-url")) {
+        const f = new FormData();
+        f.append("file", normalized.file);
+        res = await fetch("/api/ocr/vision", { method: "POST", body: f });
+        data = await res.json();
       }
 
-      const parsed = data.parsed || {};
-      if (parsed.nome) setValue("nome", parsed.nome, { shouldDirty: true });
-      if (parsed.cpf) setValue("cpf", parsed.cpf, { shouldDirty: true });
-      if (parsed.rg) setValue("rg", parsed.rg, { shouldDirty: true });
-      if (parsed.data_nascimento)
-        setValue("data_nascimento", parsed.data_nascimento, { shouldDirty: true });
+      if (data?.error) throw new Error(String(data.error));
 
-      setOcrOpen(false);
-    } catch (err: any) {
-      setOcrError(err?.message || "Não foi possível ler o documento.");
+      const parsed = data?.parsed ?? data;
+
+      const nome = parsed?.nome ?? parsed?.name ?? parsed?.NOME;
+      const cpf = parsed?.cpf ?? parsed?.CPF;
+      const rg = parsed?.rg ?? parsed?.RG ?? parsed?.registro;
+      const nasc = parsed?.birth_date ?? parsed?.data_nascimento ?? parsed?.nascimento;
+
+      setForm((prev) => ({
+        ...prev,
+        nome: nome ?? prev.nome,
+        cpf: cpf ?? prev.cpf,
+        rg: rg ?? prev.rg,
+        data_nascimento: nasc ? toISO(nasc) : prev.data_nascimento,
+      }));
+
+      alert("Dados lidos do documento. Confira os campos.");
+    } catch (e: any) {
+      alert(e?.message ?? "Falha ao ler documento");
     } finally {
-      setOcrBusy(false);
+      setOcrLoading(false);
     }
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      {/* Header com botão de OCR à direita */}
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Autocadastro de Paciente</h1>
-          <p className="text-sm text-gray-600">
-            Preencha seus dados. Suas informações serão analisadas pela clínica.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setOcrOpen(true)}
-          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-        >
-          Ler documento
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        {/* Dados pessoais */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm">Nome completo *</label>
-            <input className="w-full rounded border px-3 py-2" {...register("nome")} />
-            {errors.nome && <p className="text-sm text-red-600">{errors.nome.message}</p>}
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Data de nascimento</label>
-            <input type="date" className="w-full rounded border px-3 py-2" {...register("data_nascimento")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Sexo</label>
-            <select className="w-full rounded border px-3 py-2" {...register("sexo")}>
-              <option value="NAO_INFORMADO">Não informado</option>
-              <option value="M">Masculino</option>
-              <option value="F">Feminino</option>
-              <option value="OUTRO">Outro</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Estado civil</label>
-            <select className="w-full rounded border px-3 py-2" {...register("estado_civil")}>
-              <option value="NAO_INFORMADO">Não informado</option>
-              <option value="SOLTEIRO">Solteiro(a)</option>
-              <option value="CASADO">Casado(a)</option>
-              <option value="DIVORCIADO">Divorciado(a)</option>
-              <option value="VIUVO">Viúvo(a)</option>
-              <option value="UNIAO_ESTAVEL">União estável</option>
-              <option value="OUTRO">Outro</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">CPF</label>
-            <input className="w-full rounded border px-3 py-2" placeholder="Somente números" {...register("cpf")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">RG</label>
-            <input className="w-full rounded border px-3 py-2" {...register("rg")} />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm">Profissão</label>
-            <input className="w-full rounded border px-3 py-2" {...register("profissao")} />
-          </div>
-        </section>
-
-        {/* Contato */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-sm">Telefone (WhatsApp) *</label>
+    <div className="max-w-2xl mx-auto p-4">
+      <Card>
+        {/* Cabeçalho com botão à direita */}
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Autocadastro</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button type="button" onClick={openPicker} disabled={ocrLoading}>
+              {ocrLoading ? "Lendo…" : "Ler documento"}
+            </Button>
             <input
-              className="w-full rounded border px-3 py-2"
-              placeholder="(11) 9 9999-9999"
-              {...register("telefone_whatsapp")}
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleOCR(f);
+                e.currentTarget.value = "";
+              }}
             />
-            {errors.telefone_whatsapp && (
-              <p className="text-sm text-red-600">{errors.telefone_whatsapp.message}</p>
-            )}
           </div>
+        </CardHeader>
 
-          <div>
-            <label className="mb-1 block text-sm">Telefone fixo</label>
-            <input className="w-full rounded border px-3 py-2" {...register("telefone_fixo")} />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-sm">E-mail</label>
-            <input type="email" className="w-full rounded border px-3 py-2" {...register("email")} />
-            {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
-          </div>
-        </section>
-
-        {/* Endereço */}
-        <section>
-          <h2 className="mb-2 text-lg font-medium">Endereço</h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">CEP</label>
-              <input className="w-full rounded border px-3 py-2" {...register("cep")} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Logradouro</label>
-              <input className="w-full rounded border px-3 py-2" {...register("logradouro")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Número</label>
-              <input className="w-full rounded border px-3 py-2" {...register("numero")} />
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            {/* Identificação */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
+                <label className="text-sm">Nome completo</label>
+                <Input value={form.nome} onChange={(e) => setField("nome", e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm">CPF</label>
+                <Input value={form.cpf} onChange={(e) => setField("cpf", e.target.value)} inputMode="numeric" />
+              </div>
+              <div>
+                <label className="text-sm">RG</label>
+                <Input value={form.rg} onChange={(e) => setField("rg", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Data de nascimento</label>
+                <Input type="date" value={form.data_nascimento} onChange={(e) => setField("data_nascimento", e.target.value)} />
+              </div>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Complemento</label>
-              <input className="w-full rounded border px-3 py-2" {...register("complemento")} />
+            {/* Contato */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm">Telefone</label>
+                <Input value={form.telefone} onChange={(e) => setField("telefone", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Email (opcional)</label>
+                <Input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} />
+              </div>
             </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Bairro</label>
-              <input className="w-full rounded border px-3 py-2" {...register("bairro")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Cidade</label>
-              <input className="w-full rounded border px-3 py-2" {...register("cidade")} />
-            </div>
-            <div className="md:col-span-1">
-              <label className="mb-1 block text-sm">Estado (UF)</label>
-              <select className="w-full rounded border px-3 py-2" {...register("estado")}>
-                <option value="">Selecione</option>
-                {UFs.map((uf) => (
-                  <option key={uf} value={uf}>
-                    {uf}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </section>
 
-        {/* Convênio */}
-        <section>
-          <h2 className="mb-2 text-lg font-medium">Convênio / Plano de saúde (opcional)</h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Convênio</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                placeholder="Ex.: Unimed, Amil, ou PARTICULAR"
-                {...register("convenio")}
-              />
+            {/* Dados complementares */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm">Estado civil</label>
+                <select
+                  className="w-full border rounded-md h-10 px-3 text-sm"
+                  value={form.estado_civil}
+                  onChange={(e) => setField("estado_civil", e.target.value)}
+                >
+                  <option value="" disabled>Selecione</option>
+                  <option value="solteiro">Solteiro(a)</option>
+                  <option value="casado">Casado(a)</option>
+                  <option value="divorciado">Divorciado(a)</option>
+                  <option value="viuvo">Viúvo(a)</option>
+                  <option value="uniao_estavel">União estável</option>
+                  <option value="nao_informar">Prefiro não informar</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm">Sexo</label>
+                <select
+                  className="w-full border rounded-md h-10 px-3 text-sm"
+                  value={form.sexo}
+                  onChange={(e) => setField("sexo", e.target.value)}
+                >
+                  <option value="" disabled>Selecione</option>
+                  <option value="feminino">Feminino</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="outro">Outro</option>
+                  <option value="nao_informar">Prefiro não informar</option>
+                </select>
+              </div>
             </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Número da carteirinha</label>
-              <input className="w-full rounded border px-3 py-2" {...register("numero_carteirinha")} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Validade da carteirinha</label>
-              <input type="date" className="w-full rounded border px-3 py-2" {...register("validade_carteirinha")} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm">Titular do plano</label>
-              <input className="w-full rounded border px-3 py-2" {...register("titular_plano")} />
-            </div>
-          </div>
-        </section>
 
-        {/* Botão enviar */}
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="rounded bg-blue-600 px-5 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSubmitting ? "Enviando..." : "Enviar cadastro"}
-          </button>
-        </div>
+            {/* Endereço */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm">CEP</label>
+                <Input value={form.cep} onChange={(e) => setField("cep", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Cidade</label>
+                <Input value={form.cidade} onChange={(e) => setField("cidade", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Bairro</label>
+                <Input value={form.bairro} onChange={(e) => setField("bairro", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Logradouro</label>
+                <Input value={form.logradouro} onChange={(e) => setField("logradouro", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Número</label>
+                <Input value={form.numero} onChange={(e) => setField("numero", e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm">Complemento</label>
+                <Input value={form.complemento} onChange={(e) => setField("complemento", e.target.value)} />
+              </div>
+            </div>
 
-        {status && (
-          <p className={`mt-3 text-sm ${status.ok ? "text-green-700" : "text-red-700"}`}>
-            {status.msg}
-          </p>
-        )}
-      </form>
+            <div>
+              <label className="text-sm">Profissão</label>
+              <Input value={form.profissao} onChange={(e) => setField("profissao", e.target.value)} />
+            </div>
 
-      {/* Modal simples de OCR */}
-      {ocrOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <form
-            onSubmit={handleOCRSubmit}
-            className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg"
-          >
-            <h3 className="text-lg font-semibold">Enviar RG/CPF/CNH</h3>
-            <input type="file" name="file" accept="image/*" required />
-            {ocrError && <p className="text-sm text-red-600">{ocrError}</p>}
+            <div>
+              <label className="text-sm">Observações</label>
+              <Textarea value={form.observacoes} onChange={(e) => setField("observacoes", e.target.value)} />
+            </div>
+
             <div className="flex justify-end gap-2">
-              <button type="button" className="rounded border px-3 py-1" onClick={() => setOcrOpen(false)}>
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50"
-                disabled={ocrBusy}
-              >
-                {ocrBusy ? "Processando…" : "Ler"}
-              </button>
+              <Button type="submit" disabled={sending}>{sending ? "Enviando…" : "Enviar"}</Button>
             </div>
           </form>
-        </div>
-      )}
-    </main>
+        </CardContent>
+      </Card>
+    </div>
   );
+}
+
+/** Converte vários formatos de data BR/ISO para yyyy-mm-dd */
+function toISO(x?: string) {
+  if (!x) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x; // já em ISO
+  const m = x.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/); // dd/mm/aaaa
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return "";
 }

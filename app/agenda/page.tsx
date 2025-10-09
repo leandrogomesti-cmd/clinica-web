@@ -1,1 +1,18 @@
-'use client'; import { supabase } from '@/lib/supabase'; import { useEffect, useState } from 'react'; export default function Agenda(){const [items,setItems]=useState<any[]>([]); useEffect(()=>{supabase.from('appointments').select('*, patients(full_name)').order('start_time',{ascending:true}).then(({data})=>setItems(data||[]));},[]); return(<main className="max-w-5xl mx-auto p-6"><h1 className="text-xl font-semibold mb-4">Agenda</h1><table className="w-full text-sm"><thead><tr><th className="p-2 text-left">Data/Hora</th><th className="p-2 text-left">Paciente</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Pagamento</th></tr></thead><tbody>{items.map(a=>(<tr key={a.id} className="border-t"><td className="p-2">{new Date(a.start_time).toLocaleString()}</td><td className="p-2">{a.patients?.full_name}</td><td className="p-2">{a.status}</td><td className="p-2">{a.payment_status}</td></tr>))}</tbody></table></main>);}
+// app/agenda/page.tsx
+import requireRole from "@/lib/auth/requireRole";
+import AgendaClient from "./_client";
+
+type Appt = { id: string; start_time: string; end_time: string; patient_name: string | null };
+
+export default async function Page() {
+  const { supabase } = await requireRole(["staff", "doctor", "admin"]);
+
+  const { data: apptsData } = await supabase
+    .from("appointments")
+    .select("id, start_time, end_time, patient_name")
+    .order("start_time", { ascending: true });
+
+  const appts = (apptsData ?? []) as Appt[];
+
+  return <AgendaClient appts={appts} />;
+}
