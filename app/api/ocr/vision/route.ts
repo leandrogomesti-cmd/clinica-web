@@ -47,7 +47,6 @@ function ok(body: Ok) {
 }
 
 function base64FromArrayBuffer(ab: ArrayBuffer) {
-  // Converte ArrayBuffer -> base64 (compatível com Edge)
   let binary = "";
   const bytes = new Uint8Array(ab);
   const chunk = 0x8000;
@@ -57,7 +56,6 @@ function base64FromArrayBuffer(ab: ArrayBuffer) {
       Array.from(bytes.subarray(i, i + chunk)) as unknown as number[]
     );
   }
-  // btoa existe no Edge runtime
   // eslint-disable-next-line no-undef
   return btoa(binary);
 }
@@ -71,7 +69,7 @@ function normalizeSpaces(s: string) {
 }
 
 function stripAccents(s: string) {
-  // Sem usar \p{Diacritic} (evita incompatibilidade no Edge)
+  // Sem usar \p{…} (mais seguro no Edge)
   return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
@@ -79,7 +77,7 @@ function stripAccents(s: string) {
 function isValidCPF(value: string) {
   const cpf = onlyDigits(value);
   if (cpf.length !== 11) return false;
-  if (/^(\d)\1{10}$/.test(cpf)) return false; // todos iguais
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
   const calc = (base: string, factorStart: number) => {
     let sum = 0;
     for (let i = 0; i < base.length; i++) {
@@ -107,8 +105,7 @@ function extractCPF(text: string) {
   if (m1 && isValidCPF(m1[1])) return formatCPF(m1[1]);
 
   // 2) fallback: qualquer 11 dígitos com máscara
-  const generic =
-    /(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}|\b\d{11}\b)/g;
+  const generic = /(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}|\b\d{11}\b)/g;
   const candidates = text.match(generic) || [];
   for (const cand of candidates) {
     if (isValidCPF(cand)) return formatCPF(cand);
@@ -116,29 +113,23 @@ function extractCPF(text: string) {
   return undefined;
 }
 
-// ---------- RG (apenas com contexto, evitando falso-positivo em CPF) ----------
+// ---------- RG (LEGACY: permissivo, com fallback sem contexto) ----------
 function formatRG(value: string) {
-  const cleaned = (value || "").toUpperCase().replace(/[^0-9X]/g, "");
-  return cleaned;
+  // RGs variam; mantemos só dígitos e X
+  return (value || "").toUpperCase().replace(/[^0-9X]/g, "");
 }
 
 function extractRG(text: string) {
   const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
 
-  const hasStrongCPFMarkers = /(?:\bCPF\b|CADASTRO DE PESSOAS F[IÍ]SICAS|N[º°]?\s*DE\s*INSCRI[ÇC][AÃ]O)/i.test(
-    text
-  );
-
-  // Rótulos típicos de RG/Identidade
+  // 1) Preferir quando há rótulo claro (mantém compatibilidade CNH, RG)
   const ctx =
     /\b(?:RG|R\.G\.|REGISTRO\s+GERAL|IDENTIDADE|CARTEIRA\s+DE\s+IDENTIDADE|ÓRG[ÃA]O\s+EMISSOR|ORGAO\s+EMISSOR|SSP(?:\/[A-Z]{2})?)\b/i;
-
   for (let i = 0; i < lines.length; i++) {
     if (ctx.test(lines[i])) {
       const sameLine =
         lines[i].match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
       if (sameLine) return formatRG(sameLine[1]);
-
       const next = lines[i + 1] || "";
       const nextLine =
         next.match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
@@ -146,15 +137,18 @@ function extractRG(text: string) {
     }
   }
 
-  // Sem contexto e com fortes marcadores de CPF no documento? não retorna RG
-  if (hasStrongCPFMarkers) return undefined;
+  // 2) LEGACY fallback: primeira sequência “plausível” (7–12 dígitos/X), mesmo sem rótulo.
+  //    Isso pode capturar o número “base” do CPF (ex.: 226815228 em "226815228-62").
+  const anywhere =
+    text.match(/\b(\d{7,12}[Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)\b/);
+  if (anywhere) return formatRG(anywhere[1]);
 
   return undefined;
 }
 
 // ---------- Data de nascimento ----------
-function normalizeDate(d: string) {
-  // Retorna no formato dd/mm/aaaa
+function normalizeDateKeep(d: string) {
+  // Se vier dd/mm/aa, mantém (front costuma aceitar). Se 8 dígitos, formata dd/mm/aaaa.
   const digits = d.replace(/[^\d]/g, "");
   if (digits.length === 8) {
     const dd = digits.slice(0, 2);
@@ -170,10 +164,10 @@ function normalizeDate(d: string) {
 }
 
 function extractNascimento(text: string) {
-  // formatos: 08/02/1984 | 08-02-84 | 8 de fev. de 1984
+  // formatos: 08/02/1984 | 08-02-84 | 08/02/84 | 8 de fev. de 1984
   const r1 = /\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{2,4})\b/;
   const m1 = text.match(r1);
-  if (m1) return normalizeDate(m1[1]);
+  if (m1) return normalizeDateKeep(m1[1]);
 
   const meses =
     "jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
@@ -224,7 +218,7 @@ function extractNascimento(text: string) {
 
 // ---------- Nome ----------
 function extractNome(text: string) {
-  // busca "Nome <valor>"
+  // Busca "NOME <valor>"
   const labeled = text.match(/(?:\bNOME\b|^NOME\s*:?)\s*([A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{2,})/m);
   if (labeled) {
     const n = labeled[1];
@@ -233,7 +227,7 @@ function extractNome(text: string) {
     );
   }
 
-  // fallback: primeira linha toda em CAPS que pareça nome
+  // Fallback: primeira linha uppercase “com cara de nome”
   const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
   for (const l of lines) {
     if (
@@ -288,7 +282,7 @@ export async function POST(req: Request) {
       const ab = await file.arrayBuffer();
       base64 = base64FromArrayBuffer(ab);
     } else {
-      // fallback: tentar ler como binário puro (caso libs mandem sem header correto)
+      // fallback: tentar ler corpo binário
       const ab = await req.arrayBuffer();
       if (ab && ab.byteLength) base64 = base64FromArrayBuffer(ab);
     }
@@ -340,7 +334,7 @@ export async function POST(req: Request) {
     const rawText = text;
     const parsed: Ok["parsed"] = {
       cpf: extractCPF(text),
-      rg: extractRG(text), // com contexto, não “chuta” RG em cartão de CPF
+      rg: extractRG(text), // LEGACY: permissivo
       data_nascimento: extractNascimento(text),
       nome: extractNome(text),
     };
