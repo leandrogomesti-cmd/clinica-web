@@ -1,18 +1,20 @@
 // app/api/ocr/vision/route.ts
+// Next.js App Router API (Edge)
+
 export const runtime = "edge";
 const VISION_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate";
 
-// ---- util: pega a key de vários nomes possíveis ----
+// ---- pega a key (prioriza o nome já usado no seu projeto) ----
 function getVisionKey() {
   return (
-    process.env.GOOGLE_CLOUD_VISION_API_KEY || // nome “oficial”
-    process.env.GOOGLE_VISION_API_KEY ||       // nome que está na Vercel do seu projeto
-    process.env.GOOGLE_API_KEY ||              // fallback eventual
+    process.env.GOOGLE_VISION_API_KEY ||            // nome já configurado na Vercel
+    process.env.GOOGLE_CLOUD_VISION_API_KEY ||      // fallback (docs)
+    process.env.GOOGLE_API_KEY ||                   // fallback extra
     ""
   );
 }
 
-// ------------- tipos -------------
+// ---------- tipos ----------
 interface Ok {
   parsed: { nome?: string; cpf?: string; rg?: string; data_nascimento?: string };
   rawText: string;
@@ -21,7 +23,7 @@ interface Ok {
 interface Err { error: string; details?: unknown }
 type JsonIn = { imageBase64?: string; url?: string } | undefined;
 
-// ------------- helpers -------------
+// ---------- helpers ----------
 function bad(body: Err, status = 400) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" }});
 }
@@ -40,15 +42,19 @@ const onlyDigits = (s: string) => (s || "").replace(/\D+/g, "");
 const normalizeSpaces = (s: string) => (s || "").replace(/[ \t]+/g, " ").trim();
 const stripAccents = (s: string) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-// ------------- CPF -------------
-function isValidCPF(v: string) {
-  const cpf = onlyDigits(v);
-  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
-  const dv = (b: string, f: number) => {
-    let s = 0; for (let i = 0; i < b.length; i++) s += parseInt(b[i]) * (f - i);
-    const m = (s * 10) % 11; return m === 10 ? 0 : m;
+// ---------- CPF ----------
+function isValidCPF(value: string) {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+  const calc = (base: string, factorStart: number) => {
+    let sum = 0;
+    for (let i = 0; i < base.length; i++) sum += parseInt(base[i]) * (factorStart - i);
+    const mod = (sum * 10) % 11; return mod === 10 ? 0 : mod;
   };
-  return dv(cpf.slice(0,9),10) === +cpf[9] && dv(cpf.slice(0,10),11) === +cpf[10];
+  const d1 = calc(cpf.slice(0, 9), 10);
+  const d2 = calc(cpf.slice(0, 10), 11);
+  return d1 === parseInt(cpf[9]) && d2 === parseInt(cpf[10]);
 }
 const formatCPF = (v: string) => {
   const d = onlyDigits(v).slice(0, 11); if (d.length !== 11) return d;
@@ -63,11 +69,15 @@ function extractCPF(text: string) {
   return undefined;
 }
 
-// ------------- RG (LEGACY permissivo; mantenho seu comportamento atual) -------------
+// ---------- RG (LEGACY permissivo, com bloqueio específico p/ cartão CPF) ----------
 const formatRG = (v: string) => (v || "").toUpperCase().replace(/[^0-9X]/g, "");
 function extractRG(text: string) {
   const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
+
+  // rótulos típicos de RG/Identidade (mantém compatibilidade com CNH/identidade)
   const ctx = /\b(?:RG|R\.G\.|REGISTRO\s+GERAL|IDENTIDADE|CARTEIRA\s+DE\s+IDENTIDADE|ÓRG[ÃA]O\s+EMISSOR|ORGAO\s+EMISSOR|SSP(?:\/[A-Z]{2})?)\b/i;
+
+  // 1) tenta com contexto (igual antes)
   for (let i = 0; i < lines.length; i++) {
     if (ctx.test(lines[i])) {
       const same = lines[i].match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
@@ -76,12 +86,23 @@ function extractRG(text: string) {
       if (next) return formatRG(next[1]);
     }
   }
+
+  // 2) BLOQUEIO APENAS para cartão de CPF (Receita):
+  // evita que o fallback capture "226815228" de "Nº de Inscrição 226815228-62"
+  const isCpfCard =
+    /(CADASTRO\s+DE\s+PESSOAS\s+F[IÍ]SICAS|N[º°]?\s*DE\s*INSCRI[ÇC][AÃ]O|SECRETARIA\s+DA\s+RECEITA\s+FEDERAL|MINIST[EÉ]RIO\s+DA\s+FAZENDA)/i.test(
+      text
+    );
+  if (isCpfCard) return undefined;
+
+  // 3) fallback permissivo (mantido) — só roda quando NÃO é cartão de CPF
   const any = text.match(/\b(\d{7,12}[Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)\b/);
   if (any) return formatRG(any[1]);
+
   return undefined;
 }
 
-// ------------- Data de nascimento -------------
+// ---------- Data de nascimento ----------
 function normalizeDate(d: string) {
   const digits = d.replace(/[^\d]/g, "");
   if (digits.length === 8) {
@@ -108,7 +129,7 @@ function extractNascimento(text: string) {
   return undefined;
 }
 
-// ------------- Nome -------------
+// ---------- Nome ----------
 function extractNome(text: string) {
   const labeled = text.match(/(?:\bNOME\b|^NOME\s*:?)\s*([A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{2,})/m);
   if (labeled) {
@@ -117,14 +138,15 @@ function extractNome(text: string) {
   }
   const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
   for (const l of lines) {
-    if (/^[A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{6,}$/.test(l) && !/\b(CPF|CADASTRO|N[º°]\s*DE\s*INSCRI|SECRETARIA|REP[ÚU]BLICA|MINIST[EÉ]RIO|BRASIL)\b/i.test(l)) {
+    if (/^[A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{6,}$/.test(l) &&
+        !/\b(CPF|CADASTRO|N[º°]\s*DE\s*INSCRI|SECRETARIA|REP[ÚU]BLICA|MINIST[EÉ]RIO|BRASIL)\b/i.test(l)) {
       return l;
     }
   }
   return undefined;
 }
 
-// ------------- confiança -------------
+// ---------- confiança ----------
 function avgConfidence(anno: any) {
   try {
     const blocks = anno?.fullTextAnnotation?.pages?.[0]?.blocks ?? [];
@@ -134,13 +156,11 @@ function avgConfidence(anno: any) {
   } catch { return undefined; }
 }
 
-// ------------- handler -------------
+// ---------- handler ----------
 export async function POST(req: Request) {
   try {
     const apiKey = getVisionKey();
-    if (!apiKey) {
-      return bad({ error: "missing-env: GOOGLE_CLOUD_VISION_API_KEY|GOOGLE_VISION_API_KEY" }, 500);
-    }
+    if (!apiKey) return bad({ error: "missing-env: GOOGLE_VISION_API_KEY|GOOGLE_CLOUD_VISION_API_KEY" }, 500);
 
     let base64: string | undefined;
     let imageUri: string | undefined;
@@ -193,13 +213,15 @@ export async function POST(req: Request) {
     const data = await res.json();
     const anno = data?.responses?.[0];
     const text: string =
-      anno?.fullTextAnnotation?.text || anno?.textAnnotations?.[0]?.description || "";
+      anno?.fullTextAnnotation?.text ||
+      anno?.textAnnotations?.[0]?.description ||
+      "";
 
     if (!text) return bad({ error: "no-text-detected" }, 422);
 
     const parsed: Ok["parsed"] = {
       cpf: extractCPF(text),
-      rg: extractRG(text),
+      rg: extractRG(text), // agora não “vaza” RG em cartão CPF
       data_nascimento: extractNascimento(text),
       nome: extractNome(text),
     };
