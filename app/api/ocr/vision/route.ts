@@ -14,238 +14,236 @@ interface Ok {
     nome?: string;
     cpf?: string;
     rg?: string;
-    data_nascimento?: string; // dd/mm/aaaa
+    data_nascimento?: string;
   };
   rawText: string;
   confidence?: number;
 }
-interface Err { error: string }
 
-// ---------- handler ----------
-export async function POST(req: Request): Promise<Response> {
-  try {
-    const ct = req.headers.get("content-type") || "";
-    let base64: string | null = null;
-
-    if (ct.includes("application/json")) {
-      const body = await req.json().catch(() => ({} as any));
-      const imageBase64: string | undefined = body?.imageBase64;
-      const url: string | undefined = body?.url;
-      if (imageBase64) {
-        base64 = sanitizeDataUrl(imageBase64);
-      } else if (url) {
-        const r = await fetch(url);
-        if (!r.ok) return bad({ error: `fetch-failed:${r.status}` });
-        const ab = await r.arrayBuffer();
-        base64 = toBase64(ab);
-      }
-    } else if (ct.includes("multipart/form-data")) {
-      const form = await req.formData();
-      const file = (form.get("file") || form.get("image")) as File | null;
-      if (!file) return bad({ error: "missing-file" });
-      if (/heic|heif/i.test(file.type) || /\.heic$/i.test(file.name)) {
-        return bad({ error: "heic-not-supported: envie JPEG/PNG" });
-      }
-      const ab = await file.arrayBuffer();
-      base64 = toBase64(ab);
-    }
-
-    if (!base64) return bad({ error: "missing-input: informe imageBase64, url ou multipart file" });
-
-    // Guard-rail de tamanho (~3MB pós-base64)
-    const approxBytes = Math.ceil(base64.length * 0.75);
-    if (approxBytes > 3_000_000) return bad({ error: "payload-too-large" });
-
-    const key = process.env.GOOGLE_VISION_API_KEY;
-    if (!key) return bad({ error: "vision-key-missing" });
-
-    const payload = {
-      requests: [{
-        image: { content: base64 },
-        features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-        imageContext: { languageHints: ["pt", "pt-BR"] },
-      }],
-    };
-
-    const g = await fetch(`${VISION_ENDPOINT}?key=${key}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!g.ok) {
-      const t = await g.text().catch(() => "");
-      return bad({ error: `vision-failed:${g.status}:${t.slice(0,180)}` }, 502);
-    }
-
-    const data = await g.json();
-    const anno = data?.responses?.[0];
-    const text: string | undefined = anno?.fullTextAnnotation?.text;
-    const confidence = avgConfidence(anno);
-
-    if (!text) return ok({ parsed: {}, rawText: "", confidence });
-
-    const normalized = normalize(text);
-
-    const parsed: Ok["parsed"] = {
-      cpf: extractCPF(normalized) || undefined,
-      rg: extractRG(normalized) || undefined,
-      nome: extractNome(normalized) || undefined,
-      data_nascimento: extractNascimento(normalized) || undefined,
-    };
-
-    return ok({ parsed, rawText: text, confidence });
-  } catch (e: any) {
-    return bad({ error: e?.message || "internal-error" }, 500);
-  }
+interface Err {
+  error: string;
+  details?: unknown;
 }
 
-/* ---------------- util http ---------------- */
-function ok(body: Ok, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-}
+type JsonIn =
+  | {
+      imageBase64?: string;
+      url?: string;
+    }
+  | undefined;
+
+// ---------- helpers ----------
 function bad(body: Err, status = 400) {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+function ok(body: Ok) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
 }
 
-/* ---------------- util base64/normalize ---------------- */
-function sanitizeDataUrl(s: string) {
-  return s.replace(/^data:([\w/+-]+);base64,/, "");
-}
 function toBase64(ab: ArrayBuffer) {
+  let binary = "";
   const bytes = new Uint8Array(ab);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin); // disponível no runtime Edge
-}
-function normalize(s: string) {
-  return s
-    .replace(/\r/g, "\n")
-    .replace(/[^\S\n]+/g, " ")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+  // eslint-disable-next-line no-undef
+  return btoa(binary);
 }
 
-/* ================== EXTRAÇÕES ================== */
+function onlyDigits(s: string) {
+  return (s || "").replace(/\D+/g, "");
+}
+
+function normalizeSpaces(s: string) {
+  return (s || "").replace(/[ \t]+/g, " ").trim();
+}
+
+function stripAccents(s: string) {
+  return (s || "").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
 
 // ---------- CPF ----------
-const CPF_DOTTED = /\d{3}\.\d{3}\.\d{3}-\d{2}/;
-const CPF_PLAIN = /\b\d{11}\b/;
-const CPF_SHORT = /\b\d{9}-\d{2}\b/; // cartão do CPF
+function isValidCPF(value: string) {
+  const cpf = onlyDigits(value);
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false; // todos iguais
+  const calc = (base: string, factorStart: number) => {
+    let sum = 0;
+    for (let i = 0; i < base.length; i++) {
+      sum += parseInt(base[i]) * (factorStart - i);
+    }
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+  const d1 = calc(cpf.slice(0, 9), 10);
+  const d2 = calc(cpf.slice(0, 10), 11);
+  return d1 === parseInt(cpf[9]) && d2 === parseInt(cpf[10]);
+}
 
-function formatCPF(any: string) {
-  const d = any.replace(/\D/g, "");
-  if (d.length !== 11) return null;
-  return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+function formatCPF(value: string) {
+  const d = onlyDigits(value).slice(0, 11);
+  if (d.length !== 11) return d;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
-function isRegistroish(u: string) {
-  return /(REGIST|N[º°o.]?\s*REG|NO\s+REG)/i.test(u);
-}
-function isInscricaoish(u: string) {
-  return /(INSCRICAO|INSCRI[ÇC][AÃ]O|N[º°o.]?\s*DE\s*INSCRI)/i.test(u);
-}
+
 function extractCPF(text: string) {
-  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  // 1) procure com rótulo
+  const cpfLabelRegex =
+    /(?:\bCPF\b|CADASTRO DE PESSOAS F[IÍ]SICAS|N[º°]?\s*DE\s*INSCRI[ÇC][AÃ]O)[^\d]{0,30}(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})/i;
+  const m1 = text.match(cpfLabelRegex);
+  if (m1 && isValidCPF(m1[1])) return formatCPF(m1[1]);
 
-  // A) janela pós-rótulo (CPF ou Nº de Inscrição)
-  {
-    const m1 = text.match(/CPF[\s\S]{0,80}(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11}|\d{9}-\d{2})/i);
-    if (m1) return formatCPF(m1[1])!;
-    const m2 = text.match(/(N[º°o.]?\s*DE\s*INSCRI[ÇC][AÃ]O|INSCRI[ÇC][AÃ]O)[\s\S]{0,60}(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11}|\d{9}-\d{2})/i);
-    if (m2) return formatCPF(m2[2])!;
+  // 2) fallback: qualquer 11 dígitos com máscara
+  const generic =
+    /(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}|\b\d{11}\b)/g;
+  const candidates = text.match(generic) || [];
+  for (const cand of candidates) {
+    if (isValidCPF(cand)) return formatCPF(cand);
   }
-
-  // B) linhas com CPF/INSCRIÇÃO (até 2 linhas abaixo), ignorando “REGISTRO”
-  for (let i = 0; i < lines.length; i++) {
-    const U = lines[i].toUpperCase();
-    if (/\bCPF\b/.test(U) || isInscricaoish(U)) {
-      for (let j = i; j <= Math.min(i + 2, lines.length - 1); j++) {
-        const Lj = lines[j], Uj = Lj.toUpperCase();
-        if (isRegistroish(Uj)) continue;
-        const m = Lj.match(CPF_DOTTED) || Lj.match(CPF_SHORT) || Lj.match(CPF_PLAIN);
-        if (m) return formatCPF(m[0])!;
-      }
-    }
-  }
-
-  // C) fallback geral — scana todas as linhas, pulando “REGISTRO”
-  for (const L of lines) {
-    const U = L.toUpperCase();
-    if (isRegistroish(U)) continue;
-    const m = L.match(CPF_DOTTED) || L.match(CPF_SHORT) || L.match(CPF_PLAIN);
-    if (m) return formatCPF(m[0])!;
-  }
-  return null;
+  return undefined;
 }
 
-// ---------- RG ----------
-const RG_PATTERNS: RegExp[] = [
-  /\b\d{2}\.?\d{3}\.?\d{3}-?[0-9Xx]\b/, // 12.345.678-9 / 12345678-9
-  /\b\d{7,9}-?[0-9Xx]\b/,               // 25099767-8
-  /\b\d{8,9}\b/,                        // 8–9 dígitos (fallback)
-];
+// ---------- RG (com contexto, evitando falsos positivos em CPF) ----------
+function formatRG(value: string) {
+  // RGs variam muito. Mantemos só dígitos + X e removemos lixo.
+  const cleaned = (value || "").toUpperCase().replace(/[^0-9X]/g, "");
+  return cleaned;
+}
+
+/**
+ * Extrai RG somente quando houver contexto claro (RG/Identidade etc.).
+ * Isso evita capturar a parte "226815228" do "Nº de Inscrição 226815228-62" do cartão de CPF.
+ */
 function extractRG(text: string) {
-  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
 
-  // 1) perto do rótulo
-  const idx = lines.findIndex((l) => /DOC\.?\s*IDENTIDADE|IDENTIDADE\/ORG|\bRG\b/i.test(l));
-  if (idx >= 0) {
-    const look = lines.slice(idx, idx + 4).join(" ");
-    const rg = findRG(look);
-    if (rg) return rg;
-  }
+  const hasStrongCPFMarkers = /(?:\bCPF\b|CADASTRO DE PESSOAS F[IÍ]SICAS|N[º°]?\s*DE\s*INSCRI[ÇC][AÃ]O)/i.test(
+    text
+  );
 
-  // 2) varredura — ignorar linhas com CPF/INSCRIÇÃO/Cadastro PF/Registro
-  for (const l of lines) {
-    const U = l.toUpperCase();
-    if (/CPF/i.test(U) || isInscricaoish(U) || /CADASTRO\s+DE\s+PESSOAS\s+FISICAS/i.test(U) || isRegistroish(U)) continue;
-    if (/VALIDADE|HABILITA|PERMISS|CATEG|EMISS/i.test(U)) continue;
-    const rg = findRG(l);
-    if (rg) return rg;
-  }
-  return null;
-}
-function findRG(s: string): string | null {
-  for (const re of RG_PATTERNS) {
-    const m = s.match(re);
-    if (m) {
-      const just = (m[0].match(/[\d.\-Xx]+/) || [])[0];
-      return just?.toUpperCase() || null;
+  // Padrões de contexto para RG
+  const ctx = /\b(?:RG|R\.G\.|REGISTRO\s+GERAL|IDENTIDADE|CARTEIRA\s+DE\s+IDENTIDADE|ÓRG[ÃA]O\s+EMISSOR|ORGAO\s+EMISSOR|SSP(?:\/[A-Z]{2})?)\b/i;
+
+  // Padrão numérico típico de RG (permite X no final)
+  const rgNum = /(\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx}])|(\b\d{5,12}[Xx]?\b)/;
+
+  // Percorre linhas: se houver contexto, tenta achar número nesta ou na próxima linha
+  for (let i = 0; i < lines.length; i++) {
+    if (ctx.test(lines[i])) {
+      // Procura número na mesma linha
+      const sameLine = lines[i].match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
+      if (sameLine) return formatRG(sameLine[1]);
+
+      // …ou na linha seguinte
+      const next = lines[i + 1] || "";
+      const nextLine = next.match(/(\d{5,12}[0-9Xx]?|\d{1,2}\.?\d{3}\.?\d{3}-?[0-9Xx]?)/);
+      if (nextLine) return formatRG(nextLine[1]);
     }
   }
-  return null;
+
+  // Sem contexto? então NÃO devolve RG (especialmente em cartões de CPF)
+  if (hasStrongCPFMarkers) return undefined;
+
+  // Opcional: como último recurso (desativado para evitar falsos-positivos)
+  // return undefined;
+  return undefined;
 }
 
-// ---------- Nascimento (dd/mm/aaaa ou dd/mm/aa) ----------
+// ---------- Data de nascimento ----------
+function normalizeDate(d: string) {
+  // Retorna no formato dd/mm/aaaa
+  const digits = d.replace(/[^\d]/g, "");
+  if (digits.length === 8) {
+    const dd = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    let yyyy = digits.slice(4);
+    if (yyyy.length === 2) {
+      const y = parseInt(yyyy, 10);
+      yyyy = y >= 30 ? `19${yyyy}` : `20${yyyy}`;
+    }
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return d;
+}
+
 function extractNascimento(text: string) {
-  // 1) com rótulo
-  const m1 = text.match(/data\s*(?:de\s*)?nasc(?:imento)?\s*[:\-]?\s*(\d{2}[\/\-]\d{2}[\/\-](\d{2}|\d{4}))/i);
-  if (m1) return normalizeBrDate(m1[1]);
+  // formatos: 08/02/1984 | 08-02-84 | 8 de fev. de 1984
+  const r1 = /\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{2,4})\b/;
+  const m1 = text.match(r1);
+  if (m1) return normalizeDate(m1[1]);
 
-  // 2) primeiro padrão de data encontrado
-  const m2 = text.match(/\b(\d{2}[\/\-]\d{2}[\/\-](\d{2}|\d{4}))\b/);
-  return m2 ? normalizeBrDate(m2[1]) : null;
-}
-function normalizeBrDate(s: string) {
-  const m = s.replace(/-/g, "/").match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4})$/);
-  if (!m) return s;
-  const [, dd, mm, yy] = m;
-  let yyyy = yy.length === 4 ? parseInt(yy, 10) : twoToFourDigitYear(parseInt(yy, 10));
-  return `${dd}/${mm}/${yyyy}`;
-}
-function twoToFourDigitYear(yy: number) {
-  // Pivot: 00–29 => 2000–2029; 30–99 => 1930–1999
-  return yy <= 29 ? 2000 + yy : 1900 + yy;
+  const meses =
+    "jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
+  const r2 = new RegExp(
+    String.raw`\b(\d{1,2})\s+de\s+(${meses})\.?,?\s+de\s+(\d{2,4})\b`,
+    "i"
+  );
+  const m2 = text.match(r2);
+  if (m2) {
+    const dd = m2[1].padStart(2, "0");
+    const mmMap: Record<string, string> = {
+      jan: "01",
+      janeiro: "01",
+      fev: "02",
+      fevereiro: "02",
+      mar: "03",
+      março: "03",
+      marco: "03",
+      abr: "04",
+      abril: "04",
+      mai: "05",
+      maio: "05",
+      jun: "06",
+      junho: "06",
+      jul: "07",
+      julho: "07",
+      ago: "08",
+      agosto: "08",
+      set: "09",
+      setembro: "09",
+      out: "10",
+      outubro: "10",
+      nov: "11",
+      novembro: "11",
+      dez: "12",
+      dezembro: "12",
+    };
+    const mm = mmMap[stripAccents(m2[2].toLowerCase())] || "01";
+    let yyyy = m2[3];
+    if (yyyy.length === 2) {
+      const y = parseInt(yyyy, 10);
+      yyyy = y >= 30 ? `19${yyyy}` : `20${yyyy}`;
+    }
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return undefined;
 }
 
 // ---------- Nome ----------
 function extractNome(text: string) {
-  const m1 = text.match(/nome\s*[:\-]?\s*([A-Z ]{3,})/i);
-  if (m1) return cleanupNome(m1[1]);
-  const m2 = text.match(/(?:\n|^)([A-Z ]{3,})\s*\n.*cpf/i);
-  if (m2) return cleanupNome(m2[1]);
-  return null;
-}
-function cleanupNome(n: string) {
-  return n.replace(/\s+/g, " ").trim();
+  // Busca padrão "Nome <linha>"
+  const m = text.match(/(?:\bNOME\b|^NOME\s*:?)\s*([A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{2,})/m);
+  if (m) {
+    const n = m[1];
+    return normalizeSpaces(n.replace(/\s+/g, " ").replace(/[^A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]/g, ""));
+  }
+
+  // fallback: primeira linha toda em CAPS que pareça nome
+  const lines = text.split(/\r?\n/).map((l) => normalizeSpaces(l));
+  for (const l of lines) {
+    if (
+      /^[A-ZÁ-ÚÂ-ÔÃ-ÕÇ\s]{6,}$/.test(l) &&
+      !/\b(CPF|CADASTRO|N[º°]\s*DE\s*INSCRI|SECRETARIA|REPÚBLICA|MINIST[EÉ]RIO|BRASIL)\b/i.test(l)
+    ) {
+      return l;
+    }
+  }
+  return undefined;
 }
 
 // ---------- confiança ----------
@@ -258,5 +256,89 @@ function avgConfidence(anno: any) {
     return confs.reduce((a, b) => a + b, 0) / confs.length;
   } catch {
     return undefined;
+  }
+}
+
+// ---------- handler ----------
+export async function POST(req: Request) {
+  try {
+    const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
+    if (!apiKey) return bad({ error: "missing-env: GOOGLE_CLOUD_VISION_API_KEY" }, 500);
+
+    let base64: string | undefined;
+    let imageUri: string | undefined;
+
+    const ctype = req.headers.get("content-type") || "";
+    if (ctype.includes("application/json")) {
+      const body = (await req.json()) as JsonIn;
+      if (body?.imageBase64) base64 = body.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      else if (body?.url) imageUri = body.url;
+    } else if (ctype.includes("multipart/form-data")) {
+      const form = await req.formData();
+      const file = (form.get("file") || form.get("image")) as File | null;
+      if (!file) return bad({ error: "missing-file" });
+      if (/heic|heif/i.test(file.type) || /\.heic$/i.test(file.name)) {
+        return bad({ error: "heic-not-supported: envie JPEG/PNG" });
+      }
+      const ab = await file.arrayBuffer();
+      base64 = toBase64(ab);
+    }
+
+    if (!base64 && !imageUri) {
+      return bad({ error: "missing-input: informe imageBase64, url ou multipart file" });
+    }
+
+    // Guard-rail de tamanho (~3MB pós-base64)
+    if (base64) {
+      const approxBytes = Math.ceil(base64.length * 0.75);
+      if (approxBytes > 3 * 1024 * 1024) {
+        return bad({ error: "payload-too-large: compactar imagem (<=3MB)" });
+      }
+    }
+
+    const body = {
+      requests: [
+        {
+          image: base64 ? { content: base64 } : { source: { imageUri } },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          imageContext: { languageHints: ["pt", "pt-BR"] },
+        },
+      ],
+    };
+
+    const res = await fetch(`${VISION_ENDPOINT}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      return bad({ error: "vision-error", details: await res.text() }, 502);
+    }
+
+    const data = await res.json();
+    const anno = data?.responses?.[0];
+    const text: string =
+      anno?.fullTextAnnotation?.text ||
+      anno?.textAnnotations?.[0]?.description ||
+      "";
+
+    if (!text) return bad({ error: "no-text-detected" }, 422);
+
+    const rawText = text;
+    const parsed: Ok["parsed"] = {
+      cpf: extractCPF(text),
+      rg: extractRG(text), // <- agora com contexto
+      data_nascimento: extractNascimento(text),
+      nome: extractNome(text),
+    };
+
+    return ok({
+      parsed,
+      rawText,
+      confidence: avgConfidence(anno),
+    });
+  } catch (e) {
+    return bad({ error: "internal-error", details: `${e}` }, 500);
   }
 }
