@@ -27,6 +27,7 @@ export function IntakeTable({
           <tr>
             <th className="text-left px-3 py-2 w-24">Ações</th>
             <th className="text-left px-3 py-2">Nome</th>
+            <th className="text-left px-3 py-2">RG</th>       {/* NOVA COLUNA */}
             <th className="text-left px-3 py-2">CPF</th>
             <th className="text-left px-3 py-2">Telefone</th>
             <th className="text-left px-3 py-2">Status</th>
@@ -42,6 +43,7 @@ export function IntakeTable({
                 </Button>
               </td>
               <td className="px-3 py-2">{i.nome}</td>
+              <td className="px-3 py-2">{i.rg || "-"}</td>    {/* NOVO DADO */}
               <td className="px-3 py-2">{i.cpf}</td>
               <td className="px-3 py-2">{i.telefone || "-"}</td>
               <td className="px-3 py-2">{i.status}</td>
@@ -50,7 +52,7 @@ export function IntakeTable({
           ))}
           {data.length === 0 && (
             <tr>
-              <td className="px-3 py-6 text-center text-muted-foreground" colSpan={6}>
+              <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>
                 Sem pendências
               </td>
             </tr>
