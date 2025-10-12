@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-// Mantém os mesmos campos; sexo/estado_civil como selects (enums)
 const schema = z.object({
   nome: z.string().min(2),
   telefone: z.string().optional().nullable(),
@@ -18,20 +17,11 @@ const schema = z.object({
   data_nascimento: z.string().optional().nullable(),
   email: z.string().email().optional().nullable(),
   estado_civil: z
-    .enum([
-      "SOLTEIRO",
-      "CASADO",
-      "DIVORCIADO",
-      "VIUVO",
-      "UNIAO_ESTAVEL",
-      "NAO_INFORMADO",
-    ])
-    .optional()
-    .nullable(),
+    .enum(["SOLTEIRO","CASADO","DIVORCIADO","VIUVO","UNIAO_ESTAVEL","NAO_INFORMADO"])
+    .optional().nullable(),
   sexo: z
-    .enum(["FEMININO", "MASCULINO", "OUTRO", "NAO_INFORMADO"])
-    .optional()
-    .nullable(),
+    .enum(["FEMININO","MASCULINO","OUTRO","NAO_INFORMADO"])
+    .optional().nullable(),
   cep: z.string().optional().nullable(),
   logradouro: z.string().optional().nullable(),
   numero: z.string().optional().nullable(),
@@ -43,6 +33,17 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+// Normaliza "DD/MM/YYYY" -> "YYYY-MM-DD" e corta ISO "YYYY-MM-DDTHH:MM:SS"
+function toISODate(v: any): any {
+  if (!v || typeof v !== "string") return v;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
+    const [dd, mm, yyyy] = v.split("/");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  return v;
+}
+
 export function IntakeSheet({
   id,
   onApproved,
@@ -53,44 +54,39 @@ export function IntakeSheet({
   onClose: () => void;
 }) {
   const supabase = createClient();
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { isSubmitting },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  const { register, handleSubmit, reset, formState: { isSubmitting } } =
+    useForm<FormData>({ resolver: zodResolver(schema) });
 
   useEffect(() => {
     (async () => {
       // Tenta a view; cai para a tabela se necessário
       let r = await supabase
         .from("vw_pacientes_intake_ui")
-        .select(
-          "nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes"
-        )
+        .select("nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes")
         .eq("id", id)
         .maybeSingle();
 
       if (r.error || !r.data) {
         r = await supabase
           .from("pacientes_intake")
-          .select(
-            "nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes"
-          )
+          .select("nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes")
           .eq("id", id)
           .maybeSingle();
       }
-
       if (r.error) return toast.error("Erro ao carregar intake");
-      reset(r.data as any);
+
+      const payload = { ...(r.data as any) };
+      payload.data_nascimento = toISODate(payload.data_nascimento); // 👈 normaliza p/ input type=date
+      reset(payload);
     })();
   }, [id]);
 
   async function onSubmit(values: FormData) {
-    // Sanitiza: remove undefined e converte "" -> null (inclui enums)
+    // "" -> null e normaliza a data antes do update
     const sanitized = Object.fromEntries(
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v])
-    );
+    ) as any;
+    sanitized.data_nascimento = toISODate(sanitized.data_nascimento); // 👈 normaliza p/ Postgres
 
     const { error } = await supabase
       .from("pacientes_intake")
@@ -101,27 +97,22 @@ export function IntakeSheet({
       toast.error(error.message ?? "Falha ao salvar correções");
       return;
     }
-
     toast.success("Alterações salvas");
-    // Fecha o painel após salvar com sucesso (pedido seu)
-    onClose();
+    onClose(); // fecha painel após sucesso
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pb-6">
-      {/* Nome */}
       <div className="grid gap-3">
         <Label>Nome</Label>
         <Input {...register("nome")} />
       </div>
 
-      {/* Telefone */}
       <div className="grid gap-3">
         <Label>Telefone</Label>
         <Input {...register("telefone")} />
       </div>
 
-      {/* RG e CPF */}
       <div className="grid gap-3">
         <Label>RG</Label>
         <Input {...register("rg")} />
@@ -131,19 +122,16 @@ export function IntakeSheet({
         <Input {...register("cpf")} />
       </div>
 
-      {/* Nascimento */}
       <div className="grid gap-3">
         <Label>Nascimento</Label>
         <Input type="date" {...register("data_nascimento")} />
       </div>
 
-      {/* E-mail */}
       <div className="grid gap-3">
         <Label>E-mail</Label>
         <Input type="email" {...register("email")} />
       </div>
 
-      {/* ESTADO CIVIL — SELECT (mapeia "" -> null) */}
       <div className="grid gap-3">
         <Label>Estado civil</Label>
         <select
@@ -161,7 +149,6 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* SEXO — SELECT (mapeia "" -> null) */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
         <select
@@ -177,7 +164,6 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* Demais campos */}
       <div className="grid gap-3">
         <Label>CEP</Label>
         <Input {...register("cep")} />
