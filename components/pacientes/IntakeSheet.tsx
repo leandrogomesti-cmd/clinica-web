@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+/** --- Tipos/Schema --- */
 const schema = z.object({
   nome: z.string().min(2),
   telefone: z.string().optional().nullable(),
@@ -17,11 +19,13 @@ const schema = z.object({
   data_nascimento: z.string().optional().nullable(),
   email: z.string().email().optional().nullable(),
   estado_civil: z
-    .enum(["SOLTEIRO","CASADO","DIVORCIADO","VIUVO","UNIAO_ESTAVEL","NAO_INFORMADO"])
-    .optional().nullable(),
+    .enum(["SOLTEIRO", "CASADO", "DIVORCIADO", "VIUVO", "UNIAO_ESTAVEL", "NAO_INFORMADO"])
+    .optional()
+    .nullable(),
   sexo: z
-    .enum(["FEMININO","MASCULINO","OUTRO","NAO_INFORMADO"])
-    .optional().nullable(),
+    .enum(["FEMININO", "MASCULINO", "OUTRO", "NAO_INFORMADO"])
+    .optional()
+    .nullable(),
   cep: z.string().optional().nullable(),
   logradouro: z.string().optional().nullable(),
   numero: z.string().optional().nullable(),
@@ -33,7 +37,8 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
-// Normaliza "DD/MM/YYYY" -> "YYYY-MM-DD" e corta ISO "YYYY-MM-DDTHH:MM:SS"
+/** --- Utils robustos --- */
+// "DD/MM/YYYY" -> "YYYY-MM-DD"; "YYYY-MM-DDTHH:mm:ss" -> "YYYY-MM-DD"
 function toISODate(v: any): any {
   if (!v || typeof v !== "string") return v;
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
@@ -42,6 +47,44 @@ function toISODate(v: any): any {
   }
   if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
   return v;
+}
+
+// Aceita rótulos e códigos; devolve código do enum
+function mapEstadoCivil(v: any): any {
+  if (!v) return v;
+  const s = String(v).trim().toUpperCase();
+  const map: Record<string, string> = {
+    "SOLTEIRO": "SOLTEIRO",
+    "SOLTEIRO(A)": "SOLTEIRO",
+    "CASADO": "CASADO",
+    "CASADO(A)": "CASADO",
+    "DIVORCIADO": "DIVORCIADO",
+    "DIVORCIADO(A)": "DIVORCIADO",
+    "VIUVO": "VIUVO",
+    "VIÚVO": "VIUVO",
+    "VIÚVO(A)": "VIUVO",
+    "VIUVO(A)": "VIUVO",
+    "UNIAO ESTAVEL": "UNIAO_ESTAVEL",
+    "UNIÃO ESTÁVEL": "UNIAO_ESTAVEL",
+    "UNIAO_ESTAVEL": "UNIAO_ESTAVEL",
+    "PREFIRO NAO INFORMAR": "NAO_INFORMADO",
+    "PREFIRO NÃO INFORMAR": "NAO_INFORMADO",
+    "NAO_INFORMADO": "NAO_INFORMADO",
+  };
+  return map[s] ?? s;
+}
+function mapSexo(v: any): any {
+  if (!v) return v;
+  const s = String(v).trim().toUpperCase();
+  const map: Record<string, string> = {
+    "FEMININO": "FEMININO",
+    "MASCULINO": "MASCULINO",
+    "OUTRO": "OUTRO",
+    "PREFIRO NAO INFORMAR": "NAO_INFORMADO",
+    "PREFIRO NÃO INFORMAR": "NAO_INFORMADO",
+    "NAO_INFORMADO": "NAO_INFORMADO",
+  };
+  return map[s] ?? s;
 }
 
 export function IntakeSheet({
@@ -54,51 +97,68 @@ export function IntakeSheet({
   onClose: () => void;
 }) {
   const supabase = createClient();
-  const { register, handleSubmit, reset, formState: { isSubmitting } } =
-    useForm<FormData>({ resolver: zodResolver(schema) });
 
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { isSubmitting },
+  } = useForm<FormData>({ resolver: zodResolver(schema) });
+
+  /** Carrega dados (view -> fallback tabela) e normaliza a data para o input */
   useEffect(() => {
     (async () => {
-      // Tenta a view; cai para a tabela se necessário
       let r = await supabase
         .from("vw_pacientes_intake_ui")
-        .select("nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes")
+        .select(
+          "nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes"
+        )
         .eq("id", id)
         .maybeSingle();
 
       if (r.error || !r.data) {
         r = await supabase
           .from("pacientes_intake")
-          .select("nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes")
+          .select(
+            "nome, telefone, rg, cpf, data_nascimento, email, estado_civil, sexo, cep, logradouro, numero, bairro, cidade, complemento, profissao, observacoes"
+          )
           .eq("id", id)
           .maybeSingle();
       }
-      if (r.error) return toast.error("Erro ao carregar intake");
+
+      if (r.error) {
+        toast.error("Erro ao carregar intake");
+        return;
+      }
 
       const payload = { ...(r.data as any) };
-      payload.data_nascimento = toISODate(payload.data_nascimento); // 👈 normaliza p/ input type=date
+      payload.data_nascimento = toISODate(payload.data_nascimento);
+      payload.estado_civil = mapEstadoCivil(payload.estado_civil);
+      payload.sexo = mapSexo(payload.sexo);
       reset(payload);
     })();
-  }, [id]);
+  }, [id, reset, supabase]);
 
+  /** Salva — sanitiza e normaliza antes do PATCH */
   async function onSubmit(values: FormData) {
-    // "" -> null e normaliza a data antes do update
-    const sanitized = Object.fromEntries(
+    const sanitized: any = Object.fromEntries(
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v])
-    ) as any;
-    sanitized.data_nascimento = toISODate(sanitized.data_nascimento); // 👈 normaliza p/ Postgres
+    );
 
-    const { error } = await supabase
-      .from("pacientes_intake")
-      .update(sanitized)
-      .eq("id", id);
+    // Normalizações críticas (evitam 22P02)
+    sanitized.data_nascimento = toISODate(sanitized.data_nascimento);
+    sanitized.estado_civil = sanitized.estado_civil ? mapEstadoCivil(sanitized.estado_civil) : null;
+    sanitized.sexo = sanitized.sexo ? mapSexo(sanitized.sexo) : null;
+
+    const { error } = await supabase.from("pacientes_intake").update(sanitized).eq("id", id);
 
     if (error) {
       toast.error(error.message ?? "Falha ao salvar correções");
       return;
     }
+
     toast.success("Alterações salvas");
-    onClose(); // fecha painel após sucesso
+    onClose(); // fecha o painel após sucesso
   }
 
   return (
@@ -117,6 +177,7 @@ export function IntakeSheet({
         <Label>RG</Label>
         <Input {...register("rg")} />
       </div>
+
       <div className="grid gap-3">
         <Label>CPF</Label>
         <Input {...register("cpf")} />
@@ -132,11 +193,12 @@ export function IntakeSheet({
         <Input type="email" {...register("email")} />
       </div>
 
+      {/* ESTADO CIVIL */}
       <div className="grid gap-3">
         <Label>Estado civil</Label>
         <select
           className="border rounded-md h-10 px-3"
-          {...register("estado_civil", { setValueAs: (v) => (v === "" ? null : v) })}
+          {...register("estado_civil", { setValueAs: (v) => (v === "" ? null : mapEstadoCivil(v)) })}
           defaultValue=""
         >
           <option value="">Selecione</option>
@@ -149,11 +211,12 @@ export function IntakeSheet({
         </select>
       </div>
 
+      {/* SEXO */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
         <select
           className="border rounded-md h-10 px-3"
-          {...register("sexo", { setValueAs: (v) => (v === "" ? null : v) })}
+          {...register("sexo", { setValueAs: (v) => (v === "" ? null : mapSexo(v)) })}
           defaultValue=""
         >
           <option value="">Selecione</option>
