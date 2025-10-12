@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-// Mantém os mesmos campos; agora sexo/estado_civil serão selects
+// Mantém os mesmos campos; sexo/estado_civil são selects
 const schema = z.object({
   nome: z.string().min(2),
   telefone: z.string().optional().nullable(),
@@ -87,11 +87,17 @@ export function IntakeSheet({
   }, [id]);
 
   async function onSubmit(values: FormData) {
+    // sanitiza: "" -> null (evita 400 ao salvar enums/campos opcionais)
+    const sanitized = Object.fromEntries(
+      Object.entries(values).map(([k, v]) => [k, v === "" ? null : v])
+    );
+
     const { error } = await supabase
       .from("pacientes_intake")
-      .update(values)
+      .update(sanitized)
       .eq("id", id);
-    if (error) return toast.error("Falha ao salvar correções");
+
+    if (error) return toast.error(error.message ?? "Falha ao salvar correções");
     toast.success("Alterações salvas");
   }
 
@@ -131,12 +137,12 @@ export function IntakeSheet({
         <Input type="email" {...register("email")} />
       </div>
 
-      {/* ESTADO CIVIL — agora SELECT */}
+      {/* ESTADO CIVIL — SELECT */}
       <div className="grid gap-3">
         <Label>Estado civil</Label>
         <select
           className="border rounded-md h-10 px-3"
-          {...register("estado_civil")}
+          {...register("estado_civil", { setValueAs: (v) => (v === "" ? null : v) })}
           defaultValue=""
         >
           <option value="">Selecione</option>
@@ -149,12 +155,12 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* SEXO — agora SELECT */}
+      {/* SEXO — SELECT */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
         <select
           className="border rounded-md h-10 px-3"
-          {...register("sexo")}
+          {...register("sexo", { setValueAs: (v) => (v === "" ? null : v) })}
           defaultValue=""
         >
           <option value="">Selecione</option>
