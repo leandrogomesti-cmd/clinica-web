@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-// Mantém os mesmos campos; sexo/estado_civil são selects
+// Mantém os mesmos campos; sexo/estado_civil como selects (enums)
 const schema = z.object({
   nome: z.string().min(2),
   telefone: z.string().optional().nullable(),
@@ -87,7 +87,7 @@ export function IntakeSheet({
   }, [id]);
 
   async function onSubmit(values: FormData) {
-    // sanitiza: "" -> null (evita 400 ao salvar enums/campos opcionais)
+    // Sanitiza: remove undefined e converte "" -> null (inclui enums)
     const sanitized = Object.fromEntries(
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v])
     );
@@ -97,8 +97,14 @@ export function IntakeSheet({
       .update(sanitized)
       .eq("id", id);
 
-    if (error) return toast.error(error.message ?? "Falha ao salvar correções");
+    if (error) {
+      toast.error(error.message ?? "Falha ao salvar correções");
+      return;
+    }
+
     toast.success("Alterações salvas");
+    // Fecha o painel após salvar com sucesso (pedido seu)
+    onClose();
   }
 
   return (
@@ -137,7 +143,7 @@ export function IntakeSheet({
         <Input type="email" {...register("email")} />
       </div>
 
-      {/* ESTADO CIVIL — SELECT */}
+      {/* ESTADO CIVIL — SELECT (mapeia "" -> null) */}
       <div className="grid gap-3">
         <Label>Estado civil</Label>
         <select
@@ -155,7 +161,7 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* SEXO — SELECT */}
+      {/* SEXO — SELECT (mapeia "" -> null) */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
         <select
@@ -171,7 +177,7 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* Demais campos (mantidos) */}
+      {/* Demais campos */}
       <div className="grid gap-3">
         <Label>CEP</Label>
         <Input {...register("cep")} />
