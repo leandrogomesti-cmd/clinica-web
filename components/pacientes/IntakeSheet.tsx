@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+// Mantém os mesmos campos; agora sexo/estado_civil serão selects
 const schema = z.object({
   nome: z.string().min(2),
   telefone: z.string().optional().nullable(),
@@ -16,8 +17,21 @@ const schema = z.object({
   cpf: z.string().optional().nullable(),
   data_nascimento: z.string().optional().nullable(),
   email: z.string().email().optional().nullable(),
-  estado_civil: z.string().optional().nullable(),
-  sexo: z.string().optional().nullable(),
+  estado_civil: z
+    .enum([
+      "SOLTEIRO",
+      "CASADO",
+      "DIVORCIADO",
+      "VIUVO",
+      "UNIAO_ESTAVEL",
+      "NAO_INFORMADO",
+    ])
+    .optional()
+    .nullable(),
+  sexo: z
+    .enum(["FEMININO", "MASCULINO", "OUTRO", "NAO_INFORMADO"])
+    .optional()
+    .nullable(),
   cep: z.string().optional().nullable(),
   logradouro: z.string().optional().nullable(),
   numero: z.string().optional().nullable(),
@@ -48,7 +62,7 @@ export function IntakeSheet({
 
   useEffect(() => {
     (async () => {
-      // tenta view primeiro (caso a view não tenha todos, caímos para a tabela)
+      // Tenta a view; cai para a tabela se necessário
       let r = await supabase
         .from("vw_pacientes_intake_ui")
         .select(
@@ -95,7 +109,7 @@ export function IntakeSheet({
         <Input {...register("telefone")} />
       </div>
 
-      {/* RG e CPF (RG vem antes do CPF) */}
+      {/* RG e CPF */}
       <div className="grid gap-3">
         <Label>RG</Label>
         <Input {...register("rg")} />
@@ -117,15 +131,41 @@ export function IntakeSheet({
         <Input type="email" {...register("email")} />
       </div>
 
-      {/* Depois do e-mail: Estado Civil, Sexo, CEP, Logradouro, Número, Bairro, Cidade, Complemento, Profissão, Observações */}
+      {/* ESTADO CIVIL — agora SELECT */}
       <div className="grid gap-3">
-        <Label>Estado Civil</Label>
-        <Input placeholder="NAO_INFORMADO / SOLTEIRO / CASADO / ..." {...register("estado_civil")} />
+        <Label>Estado civil</Label>
+        <select
+          className="border rounded-md h-10 px-3"
+          {...register("estado_civil")}
+          defaultValue=""
+        >
+          <option value="">Selecione</option>
+          <option value="SOLTEIRO">Solteiro(a)</option>
+          <option value="CASADO">Casado(a)</option>
+          <option value="DIVORCIADO">Divorciado(a)</option>
+          <option value="VIUVO">Viúvo(a)</option>
+          <option value="UNIAO_ESTAVEL">União estável</option>
+          <option value="NAO_INFORMADO">Prefiro não informar</option>
+        </select>
       </div>
+
+      {/* SEXO — agora SELECT */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
-        <Input placeholder="NAO_INFORMADO / MASCULINO / FEMININO / OUTRO" {...register("sexo")} />
+        <select
+          className="border rounded-md h-10 px-3"
+          {...register("sexo")}
+          defaultValue=""
+        >
+          <option value="">Selecione</option>
+          <option value="FEMININO">Feminino</option>
+          <option value="MASCULINO">Masculino</option>
+          <option value="OUTRO">Outro</option>
+          <option value="NAO_INFORMADO">Prefiro não informar</option>
+        </select>
       </div>
+
+      {/* Demais campos (mantidos) */}
       <div className="grid gap-3">
         <Label>CEP</Label>
         <Input {...register("cep")} />
