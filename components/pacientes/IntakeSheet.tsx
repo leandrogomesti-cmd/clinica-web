@@ -22,8 +22,9 @@ const schema = z.object({
     .enum(["SOLTEIRO", "CASADO", "DIVORCIADO", "VIUVO", "UNIAO_ESTAVEL", "NAO_INFORMADO"])
     .optional()
     .nullable(),
+  // OBS: sexo_tipo neste projeto parece aceitar 'F' | 'M' | 'OUTRO' | 'NAO_INFORMADO'
   sexo: z
-    .enum(["FEMININO", "MASCULINO", "OUTRO", "NAO_INFORMADO"])
+    .enum(["F", "M", "OUTRO", "NAO_INFORMADO"])
     .optional()
     .nullable(),
   cep: z.string().optional().nullable(),
@@ -49,7 +50,7 @@ function toISODate(v: any): any {
   return v;
 }
 
-// Aceita rótulos e códigos; devolve código do enum
+// Aceita rótulos ou códigos e devolve o que o DB espera
 function mapEstadoCivil(v: any): any {
   if (!v) return v;
   const s = String(v).trim().toUpperCase();
@@ -77,8 +78,10 @@ function mapSexo(v: any): any {
   if (!v) return v;
   const s = String(v).trim().toUpperCase();
   const map: Record<string, string> = {
-    "FEMININO": "FEMININO",
-    "MASCULINO": "MASCULINO",
+    "F": "F",
+    "M": "M",
+    "FEMININO": "F",
+    "MASCULINO": "M",
     "OUTRO": "OUTRO",
     "PREFIRO NAO INFORMAR": "NAO_INFORMADO",
     "PREFIRO NÃO INFORMAR": "NAO_INFORMADO",
@@ -105,7 +108,7 @@ export function IntakeSheet({
     formState: { isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
-  /** Carrega dados (view -> fallback tabela) e normaliza a data para o input */
+  /** Carrega dados (view -> fallback tabela) e normaliza */
   useEffect(() => {
     (async () => {
       let r = await supabase
@@ -134,7 +137,7 @@ export function IntakeSheet({
       const payload = { ...(r.data as any) };
       payload.data_nascimento = toISODate(payload.data_nascimento);
       payload.estado_civil = mapEstadoCivil(payload.estado_civil);
-      payload.sexo = mapSexo(payload.sexo);
+      payload.sexo = mapSexo(payload.sexo); // garante 'F'/'M'/...
       reset(payload);
     })();
   }, [id, reset, supabase]);
@@ -145,10 +148,10 @@ export function IntakeSheet({
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v])
     );
 
-    // Normalizações críticas (evitam 22P02)
+    // Normalizações críticas
     sanitized.data_nascimento = toISODate(sanitized.data_nascimento);
     sanitized.estado_civil = sanitized.estado_civil ? mapEstadoCivil(sanitized.estado_civil) : null;
-    sanitized.sexo = sanitized.sexo ? mapSexo(sanitized.sexo) : null;
+    sanitized.sexo = sanitized.sexo ? mapSexo(sanitized.sexo) : null; // ← envia 'F'/'M'/...
 
     const { error } = await supabase.from("pacientes_intake").update(sanitized).eq("id", id);
 
@@ -211,7 +214,7 @@ export function IntakeSheet({
         </select>
       </div>
 
-      {/* SEXO */}
+      {/* SEXO — envia 'F' / 'M' / OUTRO / NAO_INFORMADO */}
       <div className="grid gap-3">
         <Label>Sexo</Label>
         <select
@@ -220,8 +223,8 @@ export function IntakeSheet({
           defaultValue=""
         >
           <option value="">Selecione</option>
-          <option value="FEMININO">Feminino</option>
-          <option value="MASCULINO">Masculino</option>
+          <option value="F">Feminino</option>
+          <option value="M">Masculino</option>
           <option value="OUTRO">Outro</option>
           <option value="NAO_INFORMADO">Prefiro não informar</option>
         </select>
