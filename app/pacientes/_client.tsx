@@ -79,24 +79,15 @@ export default function PacientesClient() {
   }
 
   async function onAprovarIntake(id: string) {
-    const tries = [
-      supabase.rpc("promover_intake_paciente", { intake_id: id }),
-      supabase.rpc("promover_intake_paciente", { id }),
-      supabase.rpc("promover_intake_paciente", { uuid: id }),
-    ];
-    let error = null as any;
-    for (const t of tries) {
-      const r = await t;
-      if (!r.error) {
-        toast.success("Autocadastro aprovado");
-        setOpenIntake(false);
-        await loadPendentes();
-        await loadPacientes();
-        return;
-      }
-      error = r.error;
+    const { error } = await supabase.rpc("promover_intake_paciente", { intake_id: id });
+    if (error) {
+      toast.error(error.message ?? "Falha ao aprovar");
+      return;
     }
-    toast.error(error?.message ?? "Falha ao aprovar");
+    toast.success("Autocadastro aprovado");
+    setOpenIntake(false);
+    await loadPendentes();
+    await loadPacientes();
   }
 
   return (
