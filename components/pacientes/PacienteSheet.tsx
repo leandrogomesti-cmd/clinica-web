@@ -89,7 +89,14 @@ export function PacienteSheet({
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isSubmitting}>Salvar</Button>
         <Button type="button" variant="outline" onClick={() => history.back()}>Cancelar</Button>
-        <Button type="button" variant="destructive" onClick={onDelete}>Excluir</Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-red-600 text-red-700 hover:bg-red-50"
+          onClick={onDelete}
+        >
+          Excluir
+        </Button>
       </div>
     </form>
   );
