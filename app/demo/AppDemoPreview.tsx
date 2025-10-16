@@ -1776,24 +1776,24 @@ function AgendaDetailsPanel(props: {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <AgendaSelect
-            label="Médico"
-            value={form.medico}
-            onChange={(v) => setForm({ ...form, medico: v })}
-            options={medicos}
-          />
-          <AgendaSelect
-            label="Sala"
-            value={form.sala}
-            onChange={(v) => setForm({ ...form, sala: v })}
-            options={salas}
-          />
+	<AgendaSelect
+	label="Médico"
+	value={form.medico}
+	onChange={(v: string) => setForm({ ...form, medico: v })}
+	options={medicos}
+	/>
+	<AgendaSelect
+	label="Sala"
+	value={form.sala}
+	onChange={(v: string) => setForm({ ...form, sala: v })}
+	options={salas}
+	/>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <AgendaInput label="Data" type="date" value={form.data} onChange={(v) => setForm({ ...form, data: v })} />
-          <AgendaInput label="Início" value={form.inicio} onChange={(v) => setForm({ ...form, inicio: v })} placeholder="HH:mm" />
-          <AgendaInput label="Fim" value={form.fim} onChange={(v) => setForm({ ...form, fim: v })} placeholder="HH:mm" />
+          <AgendaInput label="Data" type="date" value={form.data} onChange={(v: string) => setForm({ ...form, data: v })} />
+          <AgendaInput label="Início" value={form.inicio} onChange={(v: string) => setForm({ ...form, inicio: v })} placeholder="HH:mm" />
+          <AgendaInput label="Fim" value={form.fim} onChange={(v: string) => setForm({ ...form, fim: v })} placeholder="HH:mm" />
         </div>
 
         <div>
@@ -1828,26 +1828,19 @@ function AgendaDetailsPanel(props: {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <AgendaSelect
-            label="Status"
-            value={form.status}
-            onChange={(v) => {
-              setForm({ ...form, status: v });
-              if (form.id) mudarStatus(form.id, v);
-            }}
-            options={[
-              "pendente",
-              "confirmada",
-              "aguardando",
-              "atendida",
-              "cancelada",
-              "no-show",
-            ]}
-          />
+	<AgendaSelect
+	  label="Status"
+	  value={form.status}
+	  onChange={(v: string) => {
+	    setForm({ ...form, status: v });
+	    if (form.id) mudarStatus(form.id, v as any);
+	  }}
+	  options={["pendente","confirmada","aguardando","atendida","cancelada","no-show"]}
+	/>
           <AgendaInput
             label="Observações"
             value={form.obs || ""}
-            onChange={(v) => setForm({ ...form, obs: v })}
+            onChange={(v: string) => setForm({ ...form, obs: v })}
             placeholder="(opcional)"
           />
         </div>
@@ -2640,12 +2633,14 @@ function TextInput({
   onChange,
   error,
   className,
+  onBlur,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   error?: string;
   className?: string;
+  onBlur?: () => void;
 }) {
   return (
     <div className={className}>
@@ -2654,6 +2649,7 @@ function TextInput({
         className={`border rounded-xl px-3 py-2 w-full ${error ? "border-rose-400 bg-rose-50" : ""}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+	onBlur={onBlur}
       />
       {error && <div className="text-[11px] text-rose-600 mt-1">{error}</div>}
     </div>
