@@ -1,6 +1,16 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  UserX,
+  PieChart,
+  Wallet,
+  CircleDollarSign,
+  CreditCard,
+} from "lucide-react";
 
 /**
  * AppDemoPreview (CLIENT)
@@ -32,13 +42,13 @@ export default function AppDemoPreview({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl p-4">
+      <div className="mx-auto max-w-screen-2xl 2xl:max-w-[1600px] px-3 md:px-6 py-4">
         <div className="grid grid-cols-12 gap-4">
-          <aside className="col-span-12 md:col-span-3">
+          <aside className="col-span-12 md:col-span-2 xl:col-span-2 md:sticky md:top-4 self-start">
             <Sidebar route={route} onNav={(r) => setRoute(r)} />
           </aside>
 
-          <main className="col-span-12 md:col-span-9">
+          <main className="col-span-12 md:col-span-10">
             {route === "dashboard" && <Dashboard />}
             {route === "pacientes" && <Pacientes />}
             {route === "agenda" && <Agenda />}
@@ -71,10 +81,8 @@ function Sidebar({
     { id: "relatorios", label: "Relatórios + IA" },
   ];
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm border">
-      <div className="mb-3 text-sm font-semibold text-slate-600">
-        KlinikIA (Demo)
-      </div>
+    <div className="rounded-2xl bg-white p-3 md:p-4 shadow-sm border">
+    <div className="mb-2 text-xs md:text-sm font-semibold text-slate-600">KlinikIA (Demo)</div>
       <div className="space-y-2">
         {items.map((it) => (
           <button
@@ -96,114 +104,229 @@ function Sidebar({
 
 /* ----------------- DASHBOARD ----------------- */
 function Dashboard() {
+  // ===== estado original (mantido) =====
   const [confirmDialog, setConfirmDialog] = useState<null | {
     nome: string;
     data: string;
     hora: string;
   }>(null);
 
+  // ===== dados mock (mantidos) =====
   const agendadosHoje = [
-    { nome: "Maria da Silva", hora: "14:00", confirmado: true, data: "12/10/2025" },
-    { nome: "João Pereira", hora: "15:00", confirmado: false, data: "12/10/2025" },
-    { nome: "Carlos Andrade", hora: "16:00", confirmado: true, data: "12/10/2025" },
+    { nome: "Maria da Silva", hora: "14:00", confirmado: true,  data: "12/10/2025", tipo: "Particular", valor: 250, primeiraVez: true },
+    { nome: "João Pereira",   hora: "15:00", confirmado: false, data: "12/10/2025", tipo: "Convênio",   valor: 0,   primeiraVez: false },
+    { nome: "Carlos Andrade", hora: "16:00", confirmado: true,  data: "12/10/2025", tipo: "Particular", valor: 250, primeiraVez: false },
   ];
   const pagamentosHoje = [
-    { desc: "Consulta clínica · Maria da Silva", valor: 250 },
-    { desc: "Retorno · João Pereira", valor: 0 },
-    { desc: "Aluguel da clínica", valor: 3000 },
+    { desc: "Consulta clínica · Maria da Silva", valor: 250, tipo: "Particular" },
+    { desc: "Retorno · João Pereira",            valor: 0,   tipo: "Convênio"   },
+    { desc: "Aluguel da clínica",                valor: 3000, tipo: "Outros"    },
   ];
 
-  const totalAg = agendadosHoje.length;
-  const naoConf = agendadosHoje.filter((a) => !a.confirmado).length;
+  // ===== métricas derivadas =====
+  const totalAg        = agendadosHoje.length;
+  const confirmados    = agendadosHoje.filter(a => a.confirmado).length;
+  const pendentes      = totalAg - confirmados;
+  const primeiraVezQtd = agendadosHoje.filter(a => a.primeiraVez).length;
+  const naoCompareceuSemana = 3; // mock semanal
+  const faturamentoHoje = pagamentosHoje.reduce((s, p) => s + p.valor, 0);
 
+  const consultasPagas = pagamentosHoje.filter(p => p.valor > 0 && p.tipo !== "Outros");
+  const ticketMedio = consultasPagas.length > 0
+    ? Math.round(consultasPagas.reduce((s, p) => s + p.valor, 0) / consultasPagas.length)
+    : 0;
+
+  // ocupação/mix apenas para os donuts (não exibidos como KPI)
+  const ocupacaoDia = Math.round((confirmados / Math.max(totalAg, 1)) * 100);
+  const mixParticular = Math.round((agendadosHoje.filter(a => a.tipo === "Particular").length / Math.max(totalAg, 1)) * 100);
+  const mixConvenio   = 100 - mixParticular;
+
+  // ===== handlers originais (mantidos) =====
   function openConfirm(a: (typeof agendadosHoje)[number]) {
     setConfirmDialog({ nome: a.nome, data: a.data, hora: a.hora });
   }
 
+  // ===== helper donuts (CSS puro, sem libs) =====
+  const Donut = ({ percent, label }: { percent: number; label: string }) => {
+    const p = Math.max(0, Math.min(100, percent));
+    return (
+      <div className="flex flex-col items-center justify-center gap-2">
+        <div
+          className="h-20 w-20 shrink-0 rounded-full grid place-items-center"
+          style={{ background: `conic-gradient(rgb(30 64 175) ${p}%, #e5e7eb 0)` }}
+        >
+          <div className="h-12 w-12 rounded-full bg-white grid place-items-center text-sm font-semibold">
+            {p}%
+          </div>
+        </div>
+        <div className="text-xs text-slate-600 text-center leading-tight max-w-[9rem]">{label}</div>
+      </div>
+    );
+  };
+
+  // ===== UI =====
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold">Dashboard (Demo)</h1>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Kpi title="Pacientes do dia" value={String(totalAg)} />
+      {/* KPIs principais — cores/etiquetas ajustadas */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi
-          title="Não confirmados"
-          value={String(naoConf)}
-          subtitle={<span className="text-blue-700">Enviar confirmação</span>}
+          title="Agendados hoje"
+          value={String(totalAg)}
+          subtitle={
+            <span className="inline-flex items-center gap-1 text-xs">
+              <CalendarClock className="h-4 w-4 text-slate-600" />
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Hoje</span>
+            </span>
+          }
         />
-        <Kpi title="No-show (semana)" value="12%" />
+        <Kpi
+          title="Confirmados"
+          value={String(confirmados)}
+          subtitle={
+            <span className="inline-flex items-center gap-1 text-xs">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">OK</span>
+            </span>
+          }
+        />
+        <Kpi
+          title="Pendentes"
+          value={String(pendentes)}
+          subtitle={
+            <span className="inline-flex items-center gap-1 text-xs">
+              <Clock className="h-4 w-4 text-amber-600" />
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">Atenção</span>
+            </span>
+          }
+        />
+        <Kpi
+          title="Não compareceu"
+          value={String(naoCompareceuSemana)}
+          subtitle={
+            <span className="inline-flex items-center gap-1 text-xs">
+              <UserX className="h-4 w-4 text-rose-600" />
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700">Semana</span>
+            </span>
+          }
+        />
+        <Kpi
+          title="Primeira vez"
+          value={String(primeiraVezQtd)}
+          subtitle={
+            <span className="inline-flex items-center gap-1 text-xs">
+              <PieChart className="h-4 w-4 text-indigo-600" />
+              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Hoje</span>
+            </span>
+          }
+        />
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* Cards principais */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Agendados hoje */}
         <Card title={`Agendados hoje (${totalAg})`}>
-          {agendadosHoje.map((a, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between rounded-xl border p-3"
-            >
-              <div className="space-y-1">
-                <b>{a.nome}</b>
-                <div className="text-slate-500 text-xs">{a.hora}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span
-                  className={`text-xs font-semibold rounded-full px-2 py-1 ${
-                    a.confirmado
-                      ? "bg-green-100 text-green-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}
-                >
-                  {a.confirmado ? "Confirmado" : "Pendente"}
-                </span>
-                {!a.confirmado && (
-                  <button
-                    className="px-2 py-1 text-xs rounded-lg border"
-                    onClick={() => openConfirm(a)}
+          <div className="space-y-2">
+            {agendadosHoje.map((a, i) => (
+              <div key={i} className="flex items-center justify-between rounded-xl border p-3">
+                <div className="space-y-0.5">
+                  <b>{a.nome}</b>
+                  <div className="text-slate-500 text-xs">
+                    {a.hora} · {a.tipo}{a.primeiraVez ? " · 1ª vez" : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-semibold rounded-full px-2 py-1 ${
+                      a.confirmado ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                    }`}
                   >
-                    Confirmar
-                  </button>
-                )}
+                    {a.confirmado ? "Confirmado" : "Pendente"}
+                  </span>
+                  {!a.confirmado && (
+                    <button className="px-2 py-1 text-xs rounded-lg border" onClick={() => openConfirm(a)}>
+                      Confirmar
+                    </button>
+                  )}
+                </div>
               </div>
+            ))}
+          </div>
+          <div className="pt-3 text-sm text-blue-600 underline cursor-pointer">Ir para Agenda</div>
+        </Card>
+
+        {/* Indicadores de hoje (donuts + observação embaixo) */}
+        <Card title="Indicadores de hoje">
+          <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 justify-items-center">
+            <Donut percent={ocupacaoDia} label="Ocupação de horários" />
+            <Donut percent={mixParticular} label="Mix Particular" />
+            <Donut percent={mixConvenio} label="Mix Convênio" />
+            <div className="w-full md:col-span-3 rounded-xl border p-3 mt-2">
+              <div className="text-xs text-slate-500">Observação</div>
+              <div className="text-xs text-slate-600 mt-1">Indicadores baseados nos dados do dia.</div>
             </div>
-          ))}
-          <div className="pt-2 text-sm text-blue-600 underline cursor-pointer">
-            Ir para Agenda
           </div>
         </Card>
 
-        <Card title="Pagamentos de hoje">
-          {pagamentosHoje.map((p, i) => (
+        {/* Indicadores Financeiros (faturamento, ticket, total de pagamentos) */}
+        <Card title="Indicadores Financeiros">
+          <div className="space-y-2">
             <Row
-              key={i}
-              left={<span>{p.desc}</span>}
-              right={
-                <b>
-                  R$ {p.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </b>
+              left={
+                <span className="inline-flex items-center gap-2 text-slate-600">
+                  <Wallet className="h-4 w-4" /> Faturamento (hoje)
+                </span>
               }
+              right={<b>R$ {faturamentoHoje.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</b>}
             />
-          ))}
-          <div className="pt-2 text-sm text-blue-600 underline cursor-pointer">
-            Ir para Financeiro
+            <Row
+              left={
+                <span className="inline-flex items-center gap-2 text-slate-600">
+                  <CircleDollarSign className="h-4 w-4" /> Ticket médio
+                </span>
+              }
+              right={<b>R$ {ticketMedio.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</b>}
+            />
+            <Row
+              left={
+                <span className="inline-flex items-center gap-2 text-slate-600">
+                  <CreditCard className="h-4 w-4" /> Total de pagamentos (hoje)
+                </span>
+              }
+              right={<b>R$ {faturamentoHoje.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</b>}
+            />
           </div>
+          <div className="pt-3 text-sm text-blue-600 underline cursor-pointer">Ir para Financeiro</div>
         </Card>
       </div>
 
+      {/* Insights da IA (com botões em destaque âmbar) */}
       <Card title="Insights da IA">
         <ul className="list-disc pl-5 space-y-1 text-sm text-slate-600">
           <li>
-            Taxa de não-comparecimento estimada para amanhã: <b>10%</b> (2
-            pacientes) · risco maior às 14h.
+            <b>{pendentes} pendentes</b> de confirmação.{" "}
+            <button className="text-amber-600 hover:text-amber-700 underline">
+              Disparar mensagem agora
+            </button>
           </li>
           <li>
-            Projeção de faturamento da semana: <b>R$ 12.400</b> com base nos
-            agendamentos + histórico.
+            <b>{naoCompareceuSemana} não compareceram</b>.{" "}
+            <button className="text-amber-600 hover:text-amber-700 underline">
+              Disparar mensagem agora
+            </button>
           </li>
-          <li>3 pacientes pediram retorno nos últimos 7 dias. Agendar agora.</li>
+          <li>
+            Projeção da semana: <b>R$ 12.400</b> (agendamentos + histórico).
+          </li>
+          <li>
+            3 pacientes com risco de abandono —{" "}
+            <button className="underline">contatar</button>.
+          </li>
         </ul>
       </Card>
 
-      {/* Modal de confirmação */}
+      {/* Modal de confirmação — mantido */}
       {confirmDialog && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-5 w-[520px] shadow-xl">
@@ -229,19 +352,13 @@ function Dashboard() {
                   const msg = encodeURIComponent(
                     `Olá ${confirmDialog.nome}! Confirmamos sua consulta em ${confirmDialog.data} às ${confirmDialog.hora}.`
                   );
-                  window.open(
-                    `https://wa.me/5511999999999?text=${msg}`,
-                    "_blank"
-                  );
+                  window.open(`https://wa.me/5511999999999?text=${msg}`, "_blank");
                   setConfirmDialog(null);
                 }}
               >
                 Confirmar manualmente (abrir WhatsApp)
               </button>
-              <button
-                className="w-full px-3 py-2 rounded-xl border"
-                onClick={() => setConfirmDialog(null)}
-              >
+              <button className="w-full px-3 py-2 rounded-xl border" onClick={() => setConfirmDialog(null)}>
                 Cancelar
               </button>
             </div>
@@ -896,16 +1013,9 @@ function Pacientes() {
 
 /* ----------------- AGENDA ----------------- */
 /* ========= AGENDA — NOVA (UXPreview aprovado) ========= */
-
 function Agenda() {
   // ---------- Tipos ----------
-  type Status =
-    | "pendente"
-    | "confirmada"
-    | "aguardando"
-    | "atendida"
-    | "cancelada"
-    | "no-show";
+  type Status = "pendente" | "confirmada" | "aguardando" | "atendida" | "cancelada" | "no-show";
   type Tag = "retorno" | "primeira" | "procedimento";
   type BasicAppt = { data: string; inicio: string; fim: string };
   type Appt = BasicAppt & {
@@ -919,327 +1029,141 @@ function Agenda() {
     obs?: string;
   };
 
-  // ---------- Helpers (prefixo para evitar conflitos globais) ----------
-  function ag_toMinutes(hhmm: string) {
-    const [h, m] = hhmm.split(":").map(Number);
-    return h * 60 + m;
-  }
-  function ag_fromMinutes(mins: number) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  }
-  function ag_addMinutes(hhmm: string, delta: number) {
-    return ag_fromMinutes(ag_toMinutes(hhmm) + delta);
-  }
+  // ---------- Helpers (prefixo ag_) ----------
+  function ag_toMinutes(hhmm: string) { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; }
+  function ag_fromMinutes(mins: number) { const h = Math.floor(mins / 60); const m = mins % 60; return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`; }
+  function ag_addMinutes(hhmm: string, delta: number) { return ag_fromMinutes(ag_toMinutes(hhmm) + delta); }
   function ag_overlaps(a: BasicAppt, b: BasicAppt) {
-    // Adjacentes são permitidos (interseção estrita)
-    const s1 = ag_toMinutes(a.inicio);
-    const e1 = ag_toMinutes(a.fim);
-    const s2 = ag_toMinutes(b.inicio);
-    const e2 = ag_toMinutes(b.fim);
-    return s1 < e2 && s2 < e1;
+    const s1 = ag_toMinutes(a.inicio), e1 = ag_toMinutes(a.fim);
+    const s2 = ag_toMinutes(b.inicio), e2 = ag_toMinutes(b.fim);
+    return s1 < e2 && s2 < e1; // adjacentes podem
   }
   function ag_range(start: string, end: string, stepMin: number) {
-    const res: string[] = [];
-    let t = ag_toMinutes(start);
-    const e = ag_toMinutes(end);
-    while (t <= e) {
-      res.push(ag_fromMinutes(t));
-      t += stepMin;
-    }
-    return res;
+    const res: string[] = []; let t = ag_toMinutes(start), e = ag_toMinutes(end);
+    while (t <= e) { res.push(ag_fromMinutes(t)); t += stepMin; } return res;
   }
-  function ag_parseISODate(iso: string) {
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y!, m! - 1, d!);
-  }
-  function ag_toISODateLocal(d: Date) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-  function ag_startOfWeek(iso: string) {
-    const d = ag_parseISODate(iso);
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day; // segunda
-    const monday = new Date(d);
-    monday.setDate(d.getDate() + diff);
-    return monday;
-  }
-  function ag_getWeekDates(iso: string) {
-    const mon = ag_startOfWeek(iso);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(mon);
-      d.setDate(mon.getDate() + i);
-      return ag_toISODateLocal(d);
-    });
-  }
-  function ag_fmtShort(iso: string) {
-    const d = ag_parseISODate(iso);
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const wk = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][d.getDay()];
-    return `${dd}/${mm} (${wk})`;
-  }
+  function ag_parseISODate(iso: string) { const [y,m,d] = iso.split("-").map(Number); return new Date(y!, m!-1, d!); }
+  function ag_toISODateLocal(d: Date) { const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`; }
+  function ag_startOfWeek(iso: string) { const d=ag_parseISODate(iso); const diff=d.getDay()===0?-6:1-d.getDay(); const monday=new Date(d); monday.setDate(d.getDate()+diff); return monday; }
+  function ag_getWeekDates(iso: string) { const mon=ag_startOfWeek(iso); return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return ag_toISODateLocal(d);}); }
+  function ag_fmtShort(iso: string) { const d=ag_parseISODate(iso); const dd=String(d.getDate()).padStart(2,"0"); const mm=String(d.getMonth()+1).padStart(2,"0"); const wk=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"][d.getDay()]; return `${dd}/${mm} (${wk})`; }
 
   // ---------- Constantes/estado ----------
   const medicos = ["Dra. Paula", "Dr. Lucas", "Dr. Renato"] as const;
   const salas = ["Sala 1", "Sala 2", "Sala 3"] as const;
   const etiquetaOptions: Tag[] = ["retorno", "primeira", "procedimento"];
-  const pacientesDemo = [
-    "Maria da Silva",
-    "João Pereira",
-    "Carlos Andrade",
-    "Pedro Lima",
-    "Luiza Siqueira",
-    "Aline Costa",
-    "Camila Rocha",
-    "Bruno Nogueira",
-  ];
+  const pacientesDemo = ["Maria da Silva","João Pereira","Carlos Andrade","Pedro Lima","Luiza Siqueira","Aline Costa","Camila Rocha","Bruno Nogueira"];
 
   const hojeISO = ag_toISODateLocal(new Date());
   const [view, setView] = React.useState<"dia" | "semana">("dia");
   const [groupBy, setGroupBy] = React.useState<"medico" | "sala">("medico");
   const [dataRef, setDataRef] = React.useState<string>(hojeISO);
   const [doctorSel, setDoctorSel] = React.useState<string>("todos");
-  const [filterStatus, setFilterStatus] =
-    React.useState<Status | "todos">("todos");
+  const [filterStatus, setFilterStatus] = React.useState<Status | "todos">("todos");
   const [search, setSearch] = React.useState("");
-  const [confirmDlg, setConfirmDlg] = React.useState<
-    null | { paciente: string; step: "ask" | "channel" }
-  >(null);
+  const [confirmDlg, setConfirmDlg] = React.useState<null | { paciente: string; step: "ask" | "channel" }>(null);
 
-  // Seed (duração padrão 30min; adjacentes permitidos)
-  function appt(
-    paciente: string,
-    medico: string,
-    sala: string,
-    data: string,
-    inicio: string,
-    durMin: number,
-    status: Status,
-    tags: Tag[] = [],
-    obs = ""
-  ): Appt {
-    return {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      paciente,
-      medico,
-      sala,
-      data,
-      inicio,
-      fim: ag_addMinutes(inicio, durMin),
-      status,
-      tags,
-      obs,
-      phone: "+55 11 99999-0000",
-    };
+  function appt(paciente: string, medico: string, sala: string, data: string, inicio: string, durMin: number, status: Status, tags: Tag[] = [], obs = ""): Appt {
+    return { id: `${Date.now()}_${Math.random().toString(36).slice(2,6)}`, paciente, medico, sala, data, inicio, fim: ag_addMinutes(inicio, durMin), status, tags, obs, phone: "+55 11 99999-0000" };
   }
-  const seed: Appt[] = React.useMemo(
-    () => [
-      appt(
-        "Maria da Silva",
-        "Dra. Paula",
-        "Sala 1",
-        hojeISO,
-        "14:00",
-        30,
-        "confirmada",
-        ["primeira"]
-      ),
-      appt(
-        "João Pereira",
-        "Dra. Paula",
-        "Sala 1",
-        hojeISO,
-        "15:00",
-        30,
-        "pendente",
-        ["retorno"]
-      ),
-      appt("Carlos Andrade", "Dra. Paula", "Sala 1", hojeISO, "16:00", 30, "aguardando", []),
-      appt("Pedro Lima", "Dr. Lucas", "Sala 2", hojeISO, "09:00", 30, "pendente", ["retorno"]),
-      appt("Luiza Siqueira", "Dr. Lucas", "Sala 2", hojeISO, "10:30", 30, "confirmada", []),
-    ],
-    [] // gera 1x
-  );
+  const seed: Appt[] = React.useMemo(() => [
+    appt("Maria da Silva","Dra. Paula","Sala 1",hojeISO,"14:00",30,"confirmada",["primeira"]),
+    appt("João Pereira","Dra. Paula","Sala 1",hojeISO,"15:00",30,"pendente",["retorno"]),
+    appt("Carlos Andrade","Dra. Paula","Sala 1",hojeISO,"16:00",30,"aguardando",[]),
+    appt("Pedro Lima","Dr. Lucas","Sala 2",hojeISO,"09:00",30,"pendente",["retorno"]),
+    appt("Luiza Siqueira","Dr. Lucas","Sala 2",hojeISO,"10:30",30,"confirmada",[]),
+  ], []);
 
   const [items, setItems] = React.useState<Appt[]>(() => {
-    const ls =
-      typeof window !== "undefined"
-        ? localStorage.getItem("ux_agenda_items")
-        : null;
+    const ls = typeof window !== "undefined" ? localStorage.getItem("ux_agenda_items") : null;
     return ls ? (JSON.parse(ls) as Appt[]) : seed;
   });
-  React.useEffect(
-    () => localStorage.setItem("ux_agenda_items", JSON.stringify(items)),
-    [items]
-  );
+  React.useEffect(() => localStorage.setItem("ux_agenda_items", JSON.stringify(items)), [items]);
 
-  const [espera, setEspera] = React.useState<
-    { id: string; paciente: string; preferencia?: { medico?: string; sala?: string; intervalo?: string } }[]
-  >([{ id: "w1", paciente: "Aline Costa", preferencia: { medico: "Dr. Lucas", intervalo: "14:00-16:30" } }]);
+  const [espera, setEspera] = React.useState<{ id: string; paciente: string; preferencia?: { medico?: string; sala?: string; intervalo?: string } }[]>([
+    { id: "w1", paciente: "Aline Costa", preferencia: { medico: "Dr. Lucas", intervalo: "14:00-16:30" } },
+  ]);
 
-  // Handoff: Pacientes -> Agenda (pré-preenche paciente)
+  // Handoff: Pacientes -> Agenda
   React.useEffect(() => {
     function onNewWithPatient(e: CustomEvent<{ paciente: string }>) {
-      setSelected({
-        id: "",
-        paciente: e.detail.paciente,
-        medico: doctorSel !== "todos" ? doctorSel : "Dra. Paula",
-        sala: "Sala 1",
-        data: dataRef,
-        inicio: "14:00",
-        fim: "14:30",
-        status: "pendente",
-        tags: [],
-      } as any);
-      document
-        .getElementById("details-panel")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setSelected({ id: "", paciente: e.detail.paciente, medico: doctorSel !== "todos" ? doctorSel : "Dra. Paula", sala: "Sala 1", data: dataRef, inicio: "14:00", fim: "14:30", status: "pendente", tags: [] } as any);
+      document.getElementById("details-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-    window.addEventListener(
-      "klinikia:agenda:new-with-patient",
-      onNewWithPatient as any
-    );
-    return () =>
-      window.removeEventListener(
-        "klinikia:agenda:new-with-patient",
-        onNewWithPatient as any
-      );
+    window.addEventListener("klinikia:agenda:new-with-patient", onNewWithPatient as any);
+    return () => window.removeEventListener("klinikia:agenda:new-with-patient", onNewWithPatient as any);
   }, [doctorSel, dataRef]);
 
   // ---------- Derivados ----------
-  const timeline = React.useMemo(() => ag_range("08:00", "18:00", 30), []);
-  const colunasDia = React.useMemo(
-    () => (groupBy === "medico" ? [...medicos] : [...salas]),
-    [groupBy]
-  );
+  const timeline = React.useMemo(() => ag_range("08:00","18:00",30), []);
+  const colunasDia = React.useMemo(() => (groupBy === "medico" ? [...medicos] : [...salas]), [groupBy]);
   const weekDates = React.useMemo(() => ag_getWeekDates(dataRef), [dataRef]);
-
   const colunas = React.useMemo(() => {
-    if (view === "dia") {
-      if (groupBy === "medico" && doctorSel !== "todos") return [doctorSel];
-      return colunasDia;
-    }
+    if (view === "dia") { if (groupBy === "medico" && doctorSel !== "todos") return [doctorSel]; return colunasDia; }
     return weekDates;
   }, [view, groupBy, doctorSel, colunasDia, weekDates]);
 
   const itensFiltrados = React.useMemo(() => {
     const base = items
       .filter((x) => (filterStatus === "todos" ? true : x.status === filterStatus))
-      .filter((x) =>
-        search ? x.paciente.toLowerCase().includes(search.toLowerCase()) : true
-      );
-
+      .filter((x) => (search ? x.paciente.toLowerCase().includes(search.toLowerCase()) : true));
     if (view === "dia") {
-      return base
-        .filter((x) => x.data === dataRef)
-        .sort((a, b) => ag_toMinutes(a.inicio) - ag_toMinutes(b.inicio));
+      return base.filter((x) => x.data === dataRef).sort((a,b) => ag_toMinutes(a.inicio) - ag_toMinutes(b.inicio));
     }
-    return base
-      .filter((x) => colunas.includes(x.data))
-      .sort((a, b) => {
-        if (a.data === b.data)
-          return ag_toMinutes(a.inicio) - ag_toMinutes(b.inicio);
-        return colunas.indexOf(a.data) - colunas.indexOf(b.data);
-      });
+    return base.filter((x) => colunas.includes(x.data)).sort((a,b) => (a.data === b.data ? ag_toMinutes(a.inicio) - ag_toMinutes(b.inicio) : colunas.indexOf(a.data) - colunas.indexOf(b.data)));
   }, [items, dataRef, filterStatus, search, view, colunas]);
 
   const [selected, setSelected] = React.useState<Appt | null>(null);
-  React.useEffect(() => {
-    if (!selected) return;
-    const still = items.find((i) => i.id === selected.id);
-    setSelected(still || null);
-  }, [items]);
+  React.useEffect(() => { if (!selected) return; const still = items.find((i) => i.id === selected.id); setSelected(still || null); }, [items]);
 
   // ---------- Ações ----------
   function salvar(ap: Partial<Appt>) {
     if (!ap.paciente || !ap.medico || !ap.sala || !ap.data || !ap.inicio || !ap.fim) return;
     const novo: Appt = { ...(ap as Appt), id: ap.id || `${Date.now()}` };
-
     const conflito = items.some((x) => {
       if (x.id === novo.id) return false;
       const mesmoMedico = x.medico === novo.medico;
       const mesmaSala = x.sala === novo.sala;
       return (mesmoMedico || mesmaSala) && ag_overlaps(x, novo);
     });
-    if (conflito) {
-      alert("Conflito: sobreposição de horário para o mesmo médico/sala.");
-      return;
-    }
-
-    setItems((prev) => {
-      const exist = prev.some((x) => x.id === novo.id);
-      return exist ? prev.map((x) => (x.id === novo.id ? novo : x)) : [...prev, novo];
-    });
+    if (conflito) { alert("Conflito: sobreposição de horário para o mesmo médico/sala."); return; }
+    setItems((prev) => (prev.some((x) => x.id === novo.id) ? prev.map((x) => (x.id === novo.id ? novo : x)) : [...prev, novo]));
     setSelected(novo);
   }
-
-  function excluir(id: string) {
-    if (!confirm("Excluir este agendamento?")) return;
-    setItems((prev) => prev.filter((x) => x.id !== id));
-  }
-
+  function excluir(id: string) { if (!confirm("Excluir este agendamento?")) return; setItems((prev) => prev.filter((x) => x.id !== id)); }
   function mudarStatus(id: string, status: Status) {
-    setItems((prev) =>
-      prev.map((x) => {
-        if (x.id !== id) return x;
-        if (status === "no-show") {
-          setEspera((w) => [
-            ...w,
-            {
-              id: `re_${Date.now()}`,
-              paciente: x.paciente,
-              preferencia: { medico: x.medico, intervalo: `${x.inicio}-${x.fim}` },
-            },
-          ]);
-        }
-        return { ...x, status };
-      })
-    );
+    setItems((prev) => prev.map((x) => {
+      if (x.id !== id) return x;
+      if (status === "no-show") setEspera((w) => [...w, { id: `re_${Date.now()}`, paciente: x.paciente, preferencia: { medico: x.medico, intervalo: `${x.inicio}-${x.fim}` } }]);
+      return { ...x, status };
+    }));
   }
-
   function criarVago(col: string, when: string) {
     const data = /\d{4}-\d{2}-\d{2}/.test(col) ? col : dataRef;
     const medico = view === "dia" ? (groupBy === "medico" ? col : medicos[0]) : medicos[0];
     const sala = view === "dia" ? (groupBy === "sala" ? col : salas[0]) : salas[0];
-    const novo = {
-      id: `${Date.now()}`,
-      paciente: "",
-      medico,
-      sala,
-      data,
-      inicio: when,
-      fim: ag_addMinutes(when, 30),
-      status: "pendente" as Status,
-      tags: [] as Tag[],
-    };
+    const novo = { id: `${Date.now()}`, paciente: "", medico, sala, data, inicio: when, fim: ag_addMinutes(when,30), status: "pendente" as Status, tags: [] as Tag[] };
     setSelected(novo as any);
   }
 
   const statusMap: Record<Status, { label: string; class: string }> = {
-    pendente: { label: "Agendado", class: "bg-slate-100 text-slate-700 border" },
-    confirmada: { label: "Confirmado", class: "bg-blue-100 text-blue-800 border border-blue-300" },
-    aguardando: { label: "Check-in", class: "bg-amber-100 text-amber-800 border border-amber-300" },
-    atendida: { label: "Atendido", class: "bg-green-100 text-green-800 border-green-300 border" },
-    cancelada: { label: "Cancelado", class: "bg-zinc-100 text-zinc-600 border" },
-    "no-show": { label: "Não compareceu", class: "bg-rose-100 text-rose-800 border border-rose-300" },
+    pendente:   { label: "Agendado",        class: "bg-slate-100 text-slate-700 border" },
+    confirmada: { label: "Confirmado",      class: "bg-blue-100 text-blue-800 border border-blue-300" },
+    aguardando: { label: "Check-in",        class: "bg-amber-100 text-amber-800 border border-amber-300" },
+    atendida:   { label: "Atendido",        class: "bg-green-100 text-green-800 border-green-300 border" },
+    cancelada:  { label: "Cancelado",       class: "bg-zinc-100 text-zinc-600 border" },
+    "no-show":  { label: "Não compareceu",  class: "bg-rose-100 text-rose-800 border border-rose-300" },
   };
-  const tagClass = (t: Tag) =>
-    t === "primeira" ? "bg-rose-100 border-rose-300 text-rose-700" : "bg-slate-100 border";
+  const tagClass = (t: Tag) => (t === "primeira" ? "bg-rose-100 border-rose-300 text-rose-700" : "bg-slate-100 border");
 
   const headerDoctor = doctorSel === "todos" ? "Todos os médicos" : doctorSel;
   const week = ag_getWeekDates(dataRef);
-  const headerTitle =
-    view === "dia" ? `Agenda — ${headerDoctor}` : `Agenda — Semana de ${ag_fmtShort(week[0])}`;
+  const headerTitle = view === "dia" ? `Agenda — ${headerDoctor}` : `Agenda — Semana de ${ag_fmtShort(week[0])}`;
   const headerLabels = view === "dia" ? colunas : colunas.map(ag_fmtShort);
 
   // ---------- UI ----------
   return (
-    <div className="space-y-4">
+    <div className="mb-3">
       <AgendaHeaderBar
         titulo={headerTitle}
         dataRef={dataRef}
@@ -1270,9 +1194,10 @@ function Agenda() {
         medicos={["todos", ...medicos] as unknown as string[]}
       />
 
+      {/* GRID PRINCIPAL: 12 colunas */}
       <div className="grid grid-cols-12 gap-4 overflow-visible">
-        {/* Lista do dia */}
-        <div className="col-span-12 lg:col-span-3">
+        {/* ESQUERDA — Lista do dia */}
+        <div className="col-span-12 lg:col-span-3 xl:col-span-3 2xl:col-span-3 min-w-0">
           <Card title={`Pacientes do dia (${itensFiltrados.filter((x) => x.data === dataRef).length})`}>
             <div className="space-y-2">
               {itensFiltrados
@@ -1281,9 +1206,7 @@ function Agenda() {
                   <button
                     key={c.id}
                     onClick={() => setSelected(c)}
-                    className={`w-full text-left rounded-xl border p-3 hover:ring-2 ring-slate-200 transition ${
-                      selected?.id === c.id ? "bg-slate-50" : "bg-white"
-                    }`}
+                    className={`w-full text-left rounded-xl border p-3 hover:ring-2 ring-slate-200 transition ${selected?.id === c.id ? "bg-slate-50" : "bg-white"}`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-medium">{c.paciente || "(vago)"}</div>
@@ -1312,81 +1235,79 @@ function Agenda() {
           </Card>
         </div>
 
-        {/* Grade */}
-        <div className="col-span-12 lg:col-span-6">
-          <Card
-            title={`Grade (${
-              view === "dia" ? (groupBy === "medico" ? "por médico" : "por sala") : "por semana"
-            })`}
-          >
-            <AgendaScheduleGrid
-              headerLabels={headerLabels}
-              colunas={colunas}
-              timeline={timeline}
-              itens={itensFiltrados}
-              onCreateVago={criarVago}
-              onSelect={(c) => setSelected(c)}
-              filterBy={(item, col) =>
-                view === "dia" ? (groupBy === "medico" ? item.medico === col : item.sala === col) : item.data === col
-              }
-              toMinutes={ag_toMinutes}
-            />
+        {/* CENTRO — Grade (mais larga) */}
+	<div className="col-span-12 lg:col-span-6 xl:col-span-6 2xl:col-span-6 min-w-0" id="grade-panel">
+          <Card title={`Grade (${view === "dia" ? (groupBy === "medico" ? "por médico" : "por sala") : "por semana"})`}>
+            <div className="h-full overflow-auto">
+              <div className="overflow-x-auto">
+                <AgendaScheduleGrid
+                  headerLabels={headerLabels}
+                  colunas={colunas}
+                  timeline={timeline}
+                  itens={itensFiltrados}
+                  onCreateVago={criarVago}
+                  onSelect={(c) => setSelected(c)}
+                  filterBy={(item, col) =>
+                    view === "dia" ? (groupBy === "medico" ? item.medico === col : item.sala === col) : item.data === col
+                  }
+                  toMinutes={ag_toMinutes}
+                />
+              </div>
+            </div>
           </Card>
         </div>
 
-        {/* Painel de detalhes / novo + lista de espera */}
-        <div className="col-span-12 lg:col-span-3" id="details-panel">
-          <AgendaDetailsPanel
-            selected={selected}
-            setSelected={setSelected}
-            salvar={salvar}
-            excluir={excluir}
-            mudarStatus={mudarStatus}
-            etiquetaOptions={etiquetaOptions}
-            medicos={[...medicos] as unknown as string[]}
-            salas={[...salas] as unknown as string[]}
-            dataRef={dataRef}
-            pacientes={pacientesDemo}
-          />
-
-          <AgendaWaitlistPanel
-            pacientes={pacientesDemo}
-            espera={espera}
-            setEspera={setEspera}
-            onEncaixar={(w) => {
-              const candidatas = [
-                "09:00","09:30","10:00","10:30","11:00","11:30",
-                "14:00","14:30","15:00","15:30","16:00"
-              ];
-              let added = false;
-              for (const h of candidatas) {
-                const candidate: Appt = {
-                  id: `${Date.now()}`,
-                  paciente: w.paciente,
-                  medico: w.preferencia?.medico || medicos[0],
-                  sala: salas[0],
-                  data: dataRef,
-                  inicio: h,
-                  fim: ag_addMinutes(h, 30),
-                  status: "pendente",
-                  tags: ["retorno"],
-                };
-                const conflito = items.some(
-                  (x) =>
-                    (x.medico === candidate.medico || x.sala === candidate.sala) &&
-                    ag_overlaps(x, candidate)
-                );
-                if (!conflito) {
-                  setItems((prev) => [...prev, candidate]);
-                  setEspera((prev) => prev.filter((x) => x.id !== w.id));
-                  setConfirmDlg({ paciente: w.paciente, step: "ask" });
-                  added = true;
-                  break;
-                }
-              }
-              if (!added) alert("Sem horário livre no dia.");
-            }}
-          />
+        {/* DIREITA — Detalhes + Lista de espera */}
+	<div className="col-span-12 lg:col-span-3 xl:col-span-3 2xl:col-span-3 min-w-0 xl:min-w-[360px] self-start" id="details-panel">
+          <div className="space-y-4">
+            <div className="max-h-[60vh] xl:max-h-[70vh] overflow-auto">
+              <AgendaDetailsPanel
+                selected={selected}
+                setSelected={setSelected}
+                salvar={salvar}
+                excluir={excluir}
+                mudarStatus={mudarStatus}
+                etiquetaOptions={etiquetaOptions}
+                medicos={[...medicos] as unknown as string[]}
+                salas={[...salas] as unknown as string[]}
+                dataRef={dataRef}
+                pacientes={pacientesDemo}
+              />
+            </div>
+            <div className="max-h-[30vh] overflow-auto">
+              <AgendaWaitlistPanel
+                pacientes={pacientesDemo}
+                espera={espera}
+                setEspera={setEspera}
+                onEncaixar={(w) => {
+                  const candidatas = ["09:00","09:30","10:00","10:30","11:00","11:30","14:00","14:30","15:00","15:30","16:00"];
+                  let added = false;
+                  for (const h of candidatas) {
+                    const candidate: Appt = {
+                      id: `${Date.now()}`,
+                      paciente: w.paciente,
+                      medico: w.preferencia?.medico || medicos[0],
+                      sala: salas[0],
+                      data: dataRef,
+                      inicio: h,
+                      fim: ag_addMinutes(h, 30),
+                      status: "pendente",
+                      tags: ["retorno"],
+                    };
+                    const conflito = items.some((x) => (x.medico === candidate.medico || x.sala === candidate.sala) && ag_overlaps(x, candidate));
+                    if (!conflito) {
+                      setItems((prev) => [...prev, candidate]);
+                      setEspera((prev) => prev.filter((x) => x.id !== w.id));
+                      setConfirmDlg({ paciente: w.paciente, step: "ask" });
+                      added = true;
+                      break;
+                    }
+                  }
+                  if (!added) alert("Sem horário livre no dia.");
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1401,15 +1322,8 @@ function Agenda() {
                   {confirmDlg.paciente} foi encaixado. Deseja enviar aviso de confirmação?
                 </div>
                 <div className="mt-4 flex gap-2 justify-end">
-                  <button className="px-3 py-2 rounded-xl border" onClick={() => setConfirmDlg(null)}>
-                    Não
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded-xl border bg-slate-900 text-white"
-                    onClick={() => setConfirmDlg({ ...confirmDlg, step: "channel" })}
-                  >
-                    Sim
-                  </button>
+                  <button className="px-3 py-2 rounded-xl border" onClick={() => setConfirmDlg(null)}>Não</button>
+                  <button className="px-3 py-2 rounded-xl border bg-slate-900 text-white" onClick={() => setConfirmDlg({ ...confirmDlg, step: "channel" })}>Sim</button>
                 </div>
               </>
             ) : (
@@ -1417,27 +1331,8 @@ function Agenda() {
                 <div className="text-lg font-semibold">Como deseja enviar?</div>
                 <div className="text-sm text-slate-600 mt-1">Escolha o canal de envio do aviso:</div>
                 <div className="mt-4 grid gap-2">
-                  <button
-                    className="px-3 py-3 rounded-xl border text-left hover:bg-slate-50"
-                    onClick={() => {
-                      alert("(DEMO) Envio automático via WhatsApp executado.");
-                      setConfirmDlg(null);
-                    }}
-                  >
-                    WhatsApp automático (template)
-                  </button>
-                  <button
-                    className="px-3 py-3 rounded-xl border text-left hover:bg-slate-50"
-                    onClick={() => {
-                      const msg = encodeURIComponent(
-                        "Olá! Sua consulta foi confirmada. Até breve."
-                      );
-                      window.open(`https://wa.me/?text=${msg}`, "_blank");
-                      setConfirmDlg(null);
-                    }}
-                  >
-                    WhatsApp manual (abrir mensagem pronta)
-                  </button>
+                  <button className="px-3 py-3 rounded-xl border text-left hover:bg-slate-50" onClick={() => { alert("(DEMO) Envio automático via WhatsApp executado."); setConfirmDlg(null); }}>WhatsApp automático (template)</button>
+                  <button className="px-3 py-3 rounded-xl border text-left hover:bg-slate-50" onClick={() => { const msg = encodeURIComponent("Olá! Sua consulta foi confirmada. Até breve."); window.open(`https://wa.me/?text=${msg}`, "_blank"); setConfirmDlg(null); }}>WhatsApp manual (abrir mensagem pronta)</button>
                 </div>
               </>
             )}
@@ -1447,6 +1342,7 @@ function Agenda() {
     </div>
   );
 }
+
 
 /* ===== Subcomponentes da Agenda (isolados com prefixo) ===== */
 
