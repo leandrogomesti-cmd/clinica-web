@@ -1,0 +1,11 @@
+# .github/workflows/contract.yml
+name: contract-drift
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+      - run: supabase gen types typescript --project-id ${{ secrets.SUPABASE_PROJECT_ID }} > lib/database.types.generated.ts
+      - run: diff -u lib/database.types.ts lib/database.types.generated.ts
