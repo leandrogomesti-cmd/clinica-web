@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.3.4",
+    "@hookform/resolvers": "^3.10.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "2.45.4",
     "browser-image-compression": "^2.0.2",
@@ -18,9 +18,9 @@
     "next": "14.2.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "react-hook-form": "^7.51.5",
+    "react-hook-form": "^7.65.0",
     "sonner": "^2.0.7",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "20.12.12",
