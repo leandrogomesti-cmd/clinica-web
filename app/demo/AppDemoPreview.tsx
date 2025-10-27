@@ -1,5 +1,7 @@
 "use client";
 
+import { SmartPredictTextarea } from '@/components/prescricao/SmartPredictTextarea';
+import AssistantAdminPanel from "@/components/demo/AssistantAdminPanel";
 import React, { useMemo, useState } from "react";
 import {
   CalendarClock,
@@ -27,7 +29,8 @@ export default function AppDemoPreview({
     | "financeiro"
     | "atendimento"
     | "autocadastro"
-    | "relatorios";
+    | "relatorios"
+    | "assistente";
 }) {
   const [route, setRoute] = useState<typeof initialRoute>(initialRoute);
 
@@ -56,6 +59,7 @@ export default function AppDemoPreview({
             {route === "atendimento" && <Atendimento />}
             {route === "autocadastro" && <Autocadastro />}
             {route === "relatorios" && <Relatorios />}
+	    {route === "assistente" && <Painel Admin IA />}
           </main>
         </div>
       </div>
@@ -79,6 +83,7 @@ function Sidebar({
     { id: "atendimento", label: "Atendimento" },
     { id: "autocadastro", label: "Autocadastro" },
     { id: "relatorios", label: "Relatórios + IA" },
+    { id: "assistente", label: "Assistente" },
   ];
   return (
     <div className="rounded-2xl bg-white p-3 md:p-4 shadow-sm border">
@@ -2080,6 +2085,21 @@ Fonte: Diretriz fictícia SBO 2024`
       ) || "";
     setItens((prev) => [...prev, falado]);
   }
+
+function PrescricaoEditor() {
+  const [texto, setTexto] = React.useState('');
+  return (
+    <SmartPredictTextarea
+      id="prescricao"
+      value={texto}
+      onChange={setTexto}
+      context="cefaleia tensional; febre baixa; hidratar; repouso"
+      maxSuggestions={3}
+      mode="server" // ativa a IA externa (rota /api/ai/predict)
+      className="mt-4"
+    />
+  );
+}
 
   return (
     <div className="space-y-4">

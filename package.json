@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "db:types": "supabase gen types typescript --project-id %SUPABASE_PROJECT_ID% > lib/database.types.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
