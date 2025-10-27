@@ -17,6 +17,7 @@ async function loadConfig(): Promise<AssistantConfig> {
   }
   return defaultAssistantConfig;
 }
+
 function getStore(): DemoStore {
   if (KV_URL && KV_TOK) {
     const kv = {
@@ -72,12 +73,24 @@ export async function runAssistantWithTools(userText:string, fromPhoneE164:strin
     const res = await openai.chat.completions.create({ model:"gpt-4o-mini", messages, tools, tool_choice:"auto" });
     const msg = res.choices[0].message;
     if (!msg?.tool_calls?.length) return msg?.content ?? "Certo!";
+
+    // ✅ Correção: narrowing por tipo antes de acessar .function
     for (const call of msg.tool_calls) {
+      if (call.type !== "function") continue;
+
       const name = call.function.name;
-      const args = JSON.parse(call.function.arguments||"{}");
+      const args = JSON.parse(call.function.arguments || "{}");
       const result = await runTool(name, args, fromPhoneE164);
+
+      // mantém o turno assistant que originou as tool_calls
       messages.push(msg);
-      messages.push({ role:"tool", tool_call_id:call.id, content: JSON.stringify(result) });
+
+      // resposta do tool no formato esperado
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify(result),
+      });
     }
   }
 }
