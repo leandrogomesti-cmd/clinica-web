@@ -39,7 +39,14 @@ export const MemoryStore: DemoStore = {
     return slots.filter(s => !busy.includes(s));
   },
   async create(a) {
-    const appt: Appt = { id: crypto.randomUUID(), status: "CONFIRMED", endsAt: addMin(a.startsAt, 30), ...a };
+    // Evita duplicar a chave endsAt ao combinar com ...a
+    const { endsAt, ...rest } = a;
+    const appt: Appt = {
+      id: crypto.randomUUID(),
+      status: "CONFIRMED",
+      ...rest,                                // patientPhone, doctorName, serviceName, startsAt
+      endsAt: endsAt ?? addMin(rest.startsAt, 30), // respeita endsAt se vier; senão calcula
+    };
     mem.push(appt);
     return appt;
   },
@@ -86,15 +93,24 @@ export function KvStore(kv: { get: (k:string)=>Promise<any>; set: (k:string,v:an
     },
     async create(a) {
       const all = await load();
-      const appt = { id: crypto.randomUUID(), status: "CONFIRMED" as const, endsAt: new Date(new Date(a.startsAt).getTime()+30*60000).toISOString(), ...a };
-      all.push(appt); await save(all); return appt;
+      // Evita duplicar a chave endsAt ao combinar com ...a
+      const { endsAt, ...rest } = a;
+      const appt: Appt = {
+        id: crypto.randomUUID(),
+        status: "CONFIRMED",
+        ...rest,
+        endsAt: endsAt ?? addMin(rest.startsAt, 30),
+      };
+      all.push(appt);
+      await save(all);
+      return appt;
     },
     async reschedule(id, newStartISO) {
       const all = await load();
       const i = all.findIndex((x:any)=>x.id===id);
       if (i<0) throw new Error("Consulta não encontrada");
       all[i].startsAt = newStartISO;
-      all[i].endsAt = new Date(new Date(newStartISO).getTime()+30*60000).toISOString();
+      all[i].endsAt = addMin(newStartISO, 30);
       all[i].status = "CONFIRMED";
       await save(all);
       return all[i];
