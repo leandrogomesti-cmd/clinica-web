@@ -59,7 +59,7 @@ export default function AppDemoPreview({
             {route === "atendimento" && <Atendimento />}
             {route === "autocadastro" && <Autocadastro />}
             {route === "relatorios" && <Relatorios />}
-	    {route === "assistente" && <Painel Admin IA />}
+	    {route === "assistente" && <AssistantAdminPanel />}
           </main>
         </div>
       </div>
