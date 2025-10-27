@@ -1,8 +1,18 @@
+// lib/server/assistant/agent.ts
 import OpenAI from "openai";
 import { MemoryStore, KvStore, type DemoStore } from "@/lib/server/demo-store";
 import { assistantConfigSchema, defaultAssistantConfig, type AssistantConfig } from "./config";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+// ⚠️ Evita falha no build: nada de `new OpenAI(...)` em escopo de módulo.
+//    Use esta factory em runtime (dentro da função/handler).
+function getOpenAI(): OpenAI {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    throw new Error("OPENAI_API_KEY não configurada");
+  }
+  return new OpenAI({ apiKey: key });
+}
+
 const KV_URL = process.env.VERCEL_KV_REST_API_URL;
 const KV_TOK = process.env.VERCEL_KV_REST_API_TOKEN;
 
@@ -58,6 +68,7 @@ async function runTool(name:string,args:any, fromPhone:string){
 }
 
 export async function runAssistantWithTools(userText:string, fromPhoneE164:string){
+  const openai = getOpenAI(); // ← instancia só aqui (runtime)
   const cfg = await loadConfig();
   const system = [
     cfg.system_preamble,
@@ -74,7 +85,7 @@ export async function runAssistantWithTools(userText:string, fromPhoneE164:strin
     const msg = res.choices[0].message;
     if (!msg?.tool_calls?.length) return msg?.content ?? "Certo!";
 
-    // ✅ Correção: narrowing por tipo antes de acessar .function
+    // narrowing por tipo antes de acessar .function
     for (const call of msg.tool_calls) {
       if (call.type !== "function") continue;
 
@@ -82,10 +93,7 @@ export async function runAssistantWithTools(userText:string, fromPhoneE164:strin
       const args = JSON.parse(call.function.arguments || "{}");
       const result = await runTool(name, args, fromPhoneE164);
 
-      // mantém o turno assistant que originou as tool_calls
       messages.push(msg);
-
-      // resposta do tool no formato esperado
       messages.push({
         role: "tool",
         tool_call_id: call.id,
