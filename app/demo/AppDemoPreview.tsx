@@ -1991,7 +1991,32 @@ function Financeiro() {
   );
 }
 
+
 /* ----------------- ATENDIMENTO ----------------- */
+// --- Helper local (adicione acima do componente Atendimento) ---
+function Textarea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      {/* Se você já tiver um <Label /> no arquivo, ele será reutilizado.
+         Caso não exista, troque por <div className="text-sm text-slate-500 mb-1">{label}</div> */}
+      <Label>{label}</Label>
+      <textarea
+        className="border rounded-xl px-3 py-2 w-full min-h-[88px]"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
 function Atendimento() {
   // estado dos campos clínicos (demo)
   const [paciente, setPaciente] = useState("Maria da Silva");
