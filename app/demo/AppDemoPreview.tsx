@@ -693,6 +693,8 @@ function Pacientes() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<typeof seed>(seed);
   const [editing, setEditing] = useState<typeof seed[number] | null>(null);
+  const [prescricao, setPrescricao] = useState("");
+
 
   // NOVO: pendências de autocadastro
   const [pendencias, setPendencias] = useState<Pendencia[]>([]);
@@ -2116,11 +2118,12 @@ Conduta: ${conduta}`,
               <SmartPredictTextarea
                 id="prescricao"
                 className="mb-3"
+                value={prescricao}
+                onChange={setPrescricao}
                 context={`${diagnostico}; ${conduta}; ${subjetivo}`}
                 maxSuggestions={3}
                 mode="server"
               />
-
               <div className="flex gap-2">
                 <input
                   className="border rounded-xl px-3 py-2 w-full"
