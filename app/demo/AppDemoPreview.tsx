@@ -2114,54 +2114,53 @@ Conduta: ${conduta}`,
             </button>
           </div>
 
-          {/* ---------- Prescrição ---------- */}
-          <Card title="Prescrição" className="md:col-span-2">
-            {/* Campo preditivo (usa o componente já importado no topo do arquivo) */}
-            {/* Exemplo baseado no snippet PrescricaoEditor encontrado no arquivo (mantendo API do componente) */}
-            <SmartPredictTextarea
-              id="prescricao"
-              className="mb-3"
-              // texto livre para IA sugerir palavras (contexto clínico da consulta)
-              context={`${diagnostico}; ${conduta}; ${subjetivo}`}
-              maxSuggestions={3}
-              mode="server" // usa /api/ai/predict se configurado
-              // integração simples: ao confirmar uma sugestão (Enter/Tab) copiamos a linha atual para lista
-              onConfirmSuggestion={(palavra: string) => setNovoItem((v) => (v ? v + " " + palavra : palavra))}
-            />
+{/* ---------- Prescrição ---------- */}
+<div className="md:col-span-2">
+  <Card title="Prescrição">
+    {/* Campo preditivo */}
+    <SmartPredictTextarea
+      id="prescricao"
+      className="mb-3"
+      context={`${diagnostico}; ${conduta}; ${subjetivo}`}
+      maxSuggestions={3}
+      mode="server"
+      onConfirmSuggestion={(palavra: string) =>
+        setNovoItem((v) => (v ? v + " " + palavra : palavra))
+      }
+    />
 
-            <div className="flex gap-2">
-              <input
-                className="border rounded-xl px-3 py-2 w-full"
-                list="med-list"
-                placeholder="Buscar medicamento"
-                value={novoItem}
-                onChange={(e) => setNovoItem(e.target.value)}
-              />
-              <datalist id="med-list">
-                {medicamentos.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-              <button className="px-3 py-2 rounded-xl border" onClick={addItem}>
-                Adicionar
-              </button>
-              <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>
-                Dictar → Receita
-              </button>
-            </div>
+    <div className="flex gap-2">
+      <input
+        className="border rounded-xl px-3 py-2 w-full"
+        list="med-list"
+        placeholder="Buscar medicamento"
+        value={novoItem}
+        onChange={(e) => setNovoItem(e.target.value)}
+      />
+      <datalist id="med-list">
+        {medicamentos.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+      <button className="px-3 py-2 rounded-xl border" onClick={addItem}>
+        Adicionar
+      </button>
+      <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>
+        Dictar → Receita
+      </button>
+    </div>
 
-            <ul className="list-disc pl-5 mt-3 text-sm">
-              {itens.map((m, i) => (
-                <li key={i}>{m}</li>
-              ))}
-            </ul>
+    <ul className="list-disc pl-5 mt-3 text-sm">
+      {itens.map((m, i) => (
+        <li key={i}>{m}</li>
+      ))}
+    </ul>
 
-            <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>
-              Imprimir prescrição
-            </button>
-          </Card>
-        </div>
-      </Card>
+    <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>
+      Imprimir prescrição
+    </button>
+  </Card>
+</div>
 
       <Card title="Histórico">
         <div className="space-y-2 text-sm">
