@@ -1993,49 +1993,28 @@ function Financeiro() {
 
 /* ----------------- ATENDIMENTO ----------------- */
 function Atendimento() {
-  const seedPacientes = ["Maria da Silva", "João Pereira", "Carlos Andrade"];
+  // estado dos campos clínicos (demo)
+  const [paciente, setPaciente] = useState("Maria da Silva");
+  const [subjetivo, setSubjetivo] = useState("das");
+  const [exame, setExame] = useState("ds");
+  const [diagnostico, setDiagnostico] = useState("dsda");
+  const [conduta, setConduta] = useState("sda da");
 
-  // ler paciente pré-selecionado ao clicar "Atender"
-  const [preselect] = React.useState<string | null>(() =>
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("klinikia.atendimento.paciente")
-      : null
-  );
-
-  const pacientes = React.useMemo(() => {
-    const arr = [...seedPacientes];
-    if (preselect && !arr.includes(preselect)) arr.unshift(preselect);
-    return arr;
-  }, [preselect]);
-
-  const [paciente, setPaciente] = useState(pacientes[0]);
-
-  const [subjetivo, setSubjetivo] = useState("");
-  const [exame, setExame] = useState("");
-  const [diagnostico, setDiagnostico] = useState("");
-  const [conduta, setConduta] = useState("");
-  const [itens, setItens] = useState<string[]>([]);
+  // prescrição (mantém UI existente)
   const [novoItem, setNovoItem] = useState("");
-  const [historico, setHistorico] = useState<{ data: string; texto: string }[]>(
-    [{ data: "05/10/2025", texto: "Consulta de rotina; sem alterações" }]
-  );
-  const medicamentos = [
-    "Dipirona 500mg",
-    "Ibuprofeno 400mg",
-    "Colírio Lubrificante",
-    "Prednisolona 20mg",
-  ];
+  const [itens, setItens] = useState<string[]>([]);
+  const [historico, setHistorico] = useState<{ data: string; texto: string }[]>([
+    { data: "05/10/2025", texto: "Consulta de rotina; sem alterações" },
+  ]);
 
   function addItem() {
-    if (!novoItem) return;
-    setItens((prev) => [...prev, novoItem]);
+    if (!novoItem.trim()) return;
+    setItens((prev) => [...prev, novoItem.trim()]);
     setNovoItem("");
   }
   function gerarPrescricao() {
     const meds = itens.map((m, i) => `${i + 1}. ${m}`).join("\n");
-    alert(`Print da prescrição de ${paciente}:
-
-${meds}`);
+    alert(`Print da prescrição de ${paciente}:\n\n${meds}`);
   }
   function salvarAtendimento() {
     setHistorico((prev) => [
@@ -2052,7 +2031,7 @@ Conduta: ${conduta}`,
     alert("Atendimento salvo (demo)");
   }
 
-  // IA (demo)
+  // ações IA (demo)
   function sugerirResumoIA() {
     const resumo = `Resumo (IA) — ${paciente}: paciente relata ${
       subjetivo || "sintomas leves"
@@ -2068,9 +2047,7 @@ Conduta: ${conduta}`,
       "Revisão em 30 dias ou se piora",
     ].join(" • ");
     alert(
-      `Condutas sugeridas (apoio, não substitui julgamento clínico): • ${lista}
-
-Fonte: Diretriz fictícia SBO 2024`
+      `Condutas sugeridas (apoio, não substitui julgamento clínico): • ${lista}\n\nFonte: Diretriz fictícia SBO 2024`,
     );
   }
   function sugerirRetorno() {
@@ -2079,84 +2056,84 @@ Fonte: Diretriz fictícia SBO 2024`
   }
   function ditadoParaReceita() {
     const falado =
-      prompt(
-        "Dite/cole sua receita (demo)",
-        "Colírio lubrificante 1 gota 6/6h por 14 dias"
-      ) || "";
+      prompt("Dite/cole sua receita (demo)", "Colírio lubrificante 1 gota 6/6h por 14 dias") || "";
     setItens((prev) => [...prev, falado]);
   }
 
-function PrescricaoEditor() {
-  const [texto, setTexto] = React.useState('');
-  return (
-    <SmartPredictTextarea
-      id="prescricao"
-      value={texto}
-      onChange={setTexto}
-      context="cefaleia tensional; febre baixa; hidratar; repouso"
-      maxSuggestions={3}
-      mode="server" // ativa a IA externa (rota /api/ai/predict)
-      className="mt-4"
-    />
-  );
-}
+  // ---------- UI ----------
+  const medicamentos = ["Dipirona 500mg", "Ibuprofeno 400mg", "Colírio Lubrificante", "Prednisolona 20mg"];
 
   return (
     <div className="space-y-4">
       <Card title={`Atendimento — ${paciente}`}>
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <div>
-              <Label>Paciente</Label>
-              <select
-                className="border rounded-xl px-3 py-2 w-full"
-                value={paciente}
-                onChange={(e) => setPaciente(e.target.value)}
-              >
-                {pacientes.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-            </div>
+          <TextInput label="Paciente" value={paciente} onChange={setPaciente} />
 
-            <div>
-              <Label>Subjetivo</Label>
-              <textarea className="border rounded-xl p-3 min-h-[90px] w-full" value={subjetivo} onChange={(e) => setSubjetivo(e.target.value)} />
-            </div>
-            <div>
-              <Label>Exame Oftalmológico</Label>
-              <textarea className="border rounded-xl p-3 min-h-[90px] w-full" value={exame} onChange={(e) => setExame(e.target.value)} />
-            </div>
-            <div>
-              <Label>Diagnóstico</Label>
-              <textarea className="border rounded-xl p-3 min-h-[90px] w-full" value={diagnostico} onChange={(e) => setDiagnostico(e.target.value)} />
-            </div>
-            <div>
-              <Label>Conduta</Label>
-              <textarea className="border rounded-xl p-3 min-h-[90px] w-full" value={conduta} onChange={(e) => setConduta(e.target.value)} />
-            </div>
+          <Textarea label="Subjetivo" value={subjetivo} onChange={setSubjetivo} />
+          <Textarea label="Exame Oftalmológico" value={exame} onChange={setExame} />
+          <Textarea label="Diagnóstico" value={diagnostico} onChange={setDiagnostico} />
+          <Textarea label="Conduta" value={conduta} onChange={setConduta} />
 
-            <div className="flex flex-wrap gap-2">
-              <button className="px-3 py-2 rounded-xl border" onClick={salvarAtendimento}>Salvar</button>
-              <button className="px-3 py-2 rounded-xl border" onClick={sugerirResumoIA}>Sugerir resumo (IA)</button>
-              <button className="px-3 py-2 rounded-xl border" onClick={sugerirCondutas}>Condutas sugeridas</button>
-              <button className="px-3 py-2 rounded-xl border" onClick={sugerirRetorno}>Sugerir retorno</button>
-            </div>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            <button className="px-3 py-2 rounded-xl border" onClick={salvarAtendimento}>
+              Salvar
+            </button>
+            <button className="px-3 py-2 rounded-xl border" onClick={sugerirResumoIA}>
+              Sugerir resumo (IA)
+            </button>
+            <button className="px-3 py-2 rounded-xl border" onClick={sugerirCondutas}>
+              Condutas sugeridas
+            </button>
+            <button className="px-3 py-2 rounded-xl border" onClick={sugerirRetorno}>
+              Sugerir retorno
+            </button>
           </div>
 
-          <Card title="Prescrição">
+          {/* ---------- Prescrição ---------- */}
+          <Card title="Prescrição" className="md:col-span-2">
+            {/* Campo preditivo (usa o componente já importado no topo do arquivo) */}
+            {/* Exemplo baseado no snippet PrescricaoEditor encontrado no arquivo (mantendo API do componente) */}
+            <SmartPredictTextarea
+              id="prescricao"
+              className="mb-3"
+              // texto livre para IA sugerir palavras (contexto clínico da consulta)
+              context={`${diagnostico}; ${conduta}; ${subjetivo}`}
+              maxSuggestions={3}
+              mode="server" // usa /api/ai/predict se configurado
+              // integração simples: ao confirmar uma sugestão (Enter/Tab) copiamos a linha atual para lista
+              onConfirmSuggestion={(palavra: string) => setNovoItem((v) => (v ? v + " " + palavra : palavra))}
+            />
+
             <div className="flex gap-2">
-              <input className="border rounded-xl px-3 py-2 w-full" list="med-list" placeholder="Buscar medicamento" value={novoItem} onChange={(e) => setNovoItem(e.target.value)} />
+              <input
+                className="border rounded-xl px-3 py-2 w-full"
+                list="med-list"
+                placeholder="Buscar medicamento"
+                value={novoItem}
+                onChange={(e) => setNovoItem(e.target.value)}
+              />
               <datalist id="med-list">
-                {medicamentos.map((m) => (<option key={m} value={m} />))}
+                {medicamentos.map((m) => (
+                  <option key={m} value={m} />
+                ))}
               </datalist>
-              <button className="px-3 py-2 rounded-xl border" onClick={addItem}>Adicionar</button>
-              <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>Dictar → Receita</button>
+              <button className="px-3 py-2 rounded-xl border" onClick={addItem}>
+                Adicionar
+              </button>
+              <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>
+                Dictar → Receita
+              </button>
             </div>
+
             <ul className="list-disc pl-5 mt-3 text-sm">
-              {itens.map((m, i) => (<li key={i}>{m}</li>))}
+              {itens.map((m, i) => (
+                <li key={i}>{m}</li>
+              ))}
             </ul>
-            <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>Imprimir prescrição</button>
+
+            <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>
+              Imprimir prescrição
+            </button>
           </Card>
         </div>
       </Card>
