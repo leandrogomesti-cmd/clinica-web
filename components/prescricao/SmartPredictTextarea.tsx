@@ -1,13 +1,3 @@
-<SmartPredictTextarea
-  id="prescricao"
-  className="mb-3"
-  value={prescricao}
-  onChange={setPrescricao}
-  context={`${diagnostico}; ${conduta}; ${subjetivo}`}
-  maxSuggestions={3}
-  mode="server"
-/>
-
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -225,7 +215,11 @@ export function SmartPredictTextarea({
       requestAnimationFrame(() => {
         const el = taRef.current;
         if (!el) return;
-        const newPos = (range.start + (range.start > 0 && !/\s$/.test(value.slice(0, range.start)) ? 1 : 0) + word.length + 1);
+        const newPos =
+          range.start +
+          (range.start > 0 && !/\s$/.test(value.slice(0, range.start)) ? 1 : 0) +
+          word.length +
+          1;
         try {
           el.focus();
           el.setSelectionRange(newPos, newPos);
@@ -283,7 +277,9 @@ export function SmartPredictTextarea({
             setEnabled((v) => !v);
             requestAnimationFrame(() => recompute('toggle'));
           }}
-          className={`h-6 px-2 rounded border text-xs ${enabled ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-300'}`}
+          className={`h-6 px-2 rounded border text-xs ${
+            enabled ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-300'
+          }`}
           aria-pressed={enabled}
         >
           {enabled ? 'Ligado' : 'Desligado'} (Alt+P)
@@ -295,7 +291,7 @@ export function SmartPredictTextarea({
         role="listbox"
         aria-label="Sugestões de palavras"
         className="relative mb-2"
-        style={{ minHeight: BAR_H, height: BAR_H }}
+        style={{ minHeight: 40, height: 40 }}
       >
         <div className="absolute inset-0 flex items-center gap-2 overflow-x-auto whitespace-nowrap px-1">
           {enabled &&
@@ -322,7 +318,9 @@ export function SmartPredictTextarea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
-        onScroll={() => {/* nada: evita recompute excessivo */}}
+        onScroll={() => {
+          /* nada: evita recompute excessivo */
+        }}
         placeholder="Digite a prescrição… (Tab aceita a 1ª sugestão; Alt+1..5 aceita numeradas; Esc limpa)"
       />
       <div className="mt-2 text-[11px] text-slate-500">
