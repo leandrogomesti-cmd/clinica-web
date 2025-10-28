@@ -1,183 +1,336 @@
-'use client';
-import * as React from 'react';
-import { z } from 'zod';
+<SmartPredictTextarea
+  id="prescricao"
+  className="mb-3"
+  value={prescricao}
+  onChange={setPrescricao}
+  context={`${diagnostico}; ${conduta}; ${subjetivo}`}
+  maxSuggestions={3}
+  mode="server"
+/>
 
-type SmartPredictTextareaProps = {
+'use client';
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+export type SmartPredictTextareaProps = {
   id?: string;
+  className?: string;
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  className?: string;
+  context?: string;
   maxSuggestions?: number; // default 3
-  context?: string;        // ex.: "cefaleia, febre baixa"
-  mode?: 'local' | 'server'; // novo: 'server' chama /api/ai/predict
+  mode?: 'local' | 'server' | 'auto'; // sem quebra: aceitar valores existentes
 };
 
-const cfgSchema = z.object({
-  maxSuggestions: z.number().min(1).max(5).optional(),
-  context: z.string().max(500).optional(),
-  mode: z.enum(['local','server']).optional(),
-});
-
-function tokenize(txt: string): string[] {
-  return txt.toLowerCase().replace(/[^\p{L}\p{N}\s\-,.]/gu, '').split(/\s+/).filter(Boolean);
-}
-class NGram {
-  private tri = new Map<string, Map<string, number>>();
-  private vocab = new Set<string>();
-  seed(phrases: string[]) { phrases.forEach(p => this.learn(p)); }
-  learn(text: string) {
-    const t = tokenize(text); t.forEach(w => this.vocab.add(w));
-    for (let i=0;i<t.length-2;i++){
-      const k = `${t[i]} ${t[i+1]}`; const next = t[i+2];
-      if (!this.tri.has(k)) this.tri.set(k, new Map());
-      const m = this.tri.get(k)!; m.set(next, (m.get(next) ?? 0)+1);
-    }
-  }
-  suggest(line: string, k: number): string[] {
-    const parts = tokenize(line);
-    const last = parts.at(-1) ?? ''; const w1 = parts.at(-3) ?? ''; const w2 = parts.at(-2) ?? '';
-    const key = `${w1} ${w2}`.trim(); const candidates: Array<[string,number]> = [];
-    if (key.split(' ').length === 2 && this.tri.has(key)) for (const [w,c] of this.tri.get(key)!) candidates.push([w,c]);
-    if (candidates.length < k && last) for (const w of this.vocab) if (w.startsWith(last) && w !== last) candidates.push([w,1]);
-    const seen = new Set<string>(); const out: string[] = [];
-    candidates.sort((a,b)=>b[1]-a[1]).forEach(([w])=>{ if(!seen.has(w)&&w!==last&&out.length<k){ out.push(w); seen.add(w);} });
-    return out;
-  }
-}
-const MED_SEED = [
+const SEED_MED = [
   'tomar 1 comprimido a cada 8 horas',
   'usar via oral após as refeições',
+  'aplicar 1 gota em cada olho a cada 6 horas',
   'avaliar retorno em 7 dias',
   'suspender em caso de alergia',
-  'aplicar pomada duas vezes ao dia',
   'hidratar e repouso',
-  'manter acompanhamento',
   'se persistirem os sintomas, retornar',
   'prescrever paracetamol se dor',
-  'antibiótico conforme cultura',
+  'antibiótico conforme cultura'
 ];
 
-export function SmartPredictTextarea(props: SmartPredictTextareaProps) {
-  const { value, onChange } = props;
-  const { maxSuggestions = 3, context = '', mode = 'local' } = cfgSchema.parse({
-    maxSuggestions: props.maxSuggestions, context: props.context, mode: props.mode,
-  });
+// ------ Utilidades de tokenização / caret ------
+function isWordChar(ch: string) {
+  return /\p{L}|\p{N}/u.test(ch);
+}
+function getTokenRange(text: string, caret: number) {
+  // encontra [start,end) do token atual baseado no caret
+  let s = caret - 1;
+  while (s >= 0 && isWordChar(text[s])) s--;
+  s++;
+  let e = caret;
+  while (e < text.length && isWordChar(text[e])) e++;
+  return { start: s, end: e };
+}
+function replaceToken(text: string, range: { start: number; end: number }, word: string) {
+  // substitui token por `word` + espaço
+  const before = text.slice(0, range.start);
+  const after = text.slice(range.end);
+  const sep = before.length && !/\s$/.test(before) ? ' ' : '';
+  return before + sep + word + (after.length && !/^\s/.test(after) ? ' ' : '') + after.replace(/^\s+/, ' ');
+}
 
-  const [suggestions, setSuggestions] = React.useState<string[]>([]);
-  const [enabled, setEnabled] = React.useState(true);
-  const modelRef = React.useRef<NGram>();
-  const abortRef = React.useRef<AbortController | null>(null);
-
-  // init local model
-  React.useEffect(() => {
-    const m = new NGram(); m.seed(MED_SEED);
-    try { const saved = localStorage.getItem('klinikia.prescricao.corpus'); if (saved) m.learn(saved); } catch {}
-    if (context) m.learn(context);
-    modelRef.current = m;
-  }, [context]);
-
-  // learn from typing (local)
-  React.useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const joined = (localStorage.getItem('klinikia.prescricao.corpus') ?? '') + ' ' + value;
-        localStorage.setItem('klinikia.prescricao.corpus', joined.slice(-10000));
-      } catch {}
-      modelRef.current?.learn(value);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [value]);
-
-  // fetch/generate suggestions
-  React.useEffect(() => {
-    if (!enabled) { setSuggestions([]); return; }
-    if (mode === 'server') {
-      abortRef.current?.abort();
-      const ac = new AbortController(); abortRef.current = ac;
-      const t = setTimeout(async () => {
-        try {
-          const res = await fetch('/api/ai/predict', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ prefix: value, context, k: maxSuggestions }),
-            signal: ac.signal,
-          });
-          const data = await res.json();
-          setSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
-        } catch { /* fallback */ setSuggestions(modelRef.current?.suggest(value, maxSuggestions) ?? []); }
-      }, 150);
-      return () => clearTimeout(t);
-    } else {
-      setSuggestions(modelRef.current?.suggest(value, maxSuggestions) ?? []);
+// ------ Modelo local (n-gram MUITO simples) ------
+class NGram {
+  tri = new Map<string, Map<string, number>>();
+  vocab = new Set<string>();
+  learn(text: string) {
+    const toks = (text.toLowerCase().match(/\p{L}+\p{M}*|\p{N}+/gu) || []) as string[];
+    toks.forEach((w) => this.vocab.add(w));
+    for (let i = 0; i < toks.length - 2; i++) {
+      const key = `${toks[i]} ${toks[i + 1]}`;
+      const next = toks[i + 2];
+      if (!this.tri.has(key)) this.tri.set(key, new Map());
+      const m = this.tri.get(key)!;
+      m.set(next, (m.get(next) || 0) + 1);
     }
-  }, [value, maxSuggestions, mode, enabled, context]);
+  }
+  suggest(line: string, limit: number, caret: number) {
+    // usa contexto de 2 palavras + completa token parcial
+    const left = line.slice(0, caret).toLowerCase();
+    const toks = (left.match(/\p{L}+\p{M}*|\p{N}+/gu) || []) as string[];
+    const last = toks.at(-1) || '';
+    const k1 = toks.at(-3) || '';
+    const k2 = toks.at(-2) || '';
+    const key = `${k1} ${k2}`.trim();
 
-  const accept = (s: string) => {
-    if (!s) return;
-    const needsSpace = value.length > 0 && !value.endsWith(' ');
-    onChange(value + (needsSpace ? ' ' : '') + s);
-  };
+    const out: string[] = [];
+    const push = (w: string) => {
+      if (!w) return;
+      if (w === last) return; // não sugerir o mesmo token
+      if (w.length <= 2) return; // evitar 'g', 'go'
+      if (last && (!w.startsWith(last) || w.length - last.length < 2)) return; // evita 'g','go','got'
+      if (!out.includes(w)) out.push(w);
+    };
 
-  const onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    // Alt+1..5 aceita sugestão numerada (não captura números “normais” do texto)
-    if (e.altKey && !e.ctrlKey && !e.metaKey) {
-      const num = Number(e.key);
-      if (num >= 1 && num <= Math.min(5, suggestions.length)) {
-        e.preventDefault();
-        accept(suggestions[num - 1]);
+    if (k1 && k2 && this.tri.has(key)) {
+      const map = this.tri.get(key)!;
+      [...map.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([w]) => push(w));
+    }
+    if (out.length < limit && last) {
+      // fallback por prefixo no vocabulário (palavra inteira somente)
+      for (const w of this.vocab) push(w);
+    }
+    return out.slice(0, limit);
+  }
+}
+
+// ------ chamada opcional ao servidor ------
+async function fetchServerSuggestions(
+  text: string,
+  context: string | undefined,
+  caret: number,
+  limit: number
+): Promise<string[]> {
+  try {
+    const r = await fetch('/api/ai/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, context, caret, limit })
+    });
+    if (!r.ok) throw new Error('server off');
+    const j = await r.json().catch(() => null);
+    const arr = (j?.suggestions ?? []) as string[];
+    // saneamento: apenas palavras, sem prefixos curtíssimos
+    return arr
+      .map((s) => String(s).trim().toLowerCase())
+      .filter((s) => s && !/\s/.test(s) && s.length > 2)
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+// ------ Componente ------
+export function SmartPredictTextarea({
+  id,
+  className,
+  value,
+  onChange,
+  context,
+  maxSuggestions = 3,
+  mode = 'auto'
+}: SmartPredictTextareaProps) {
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const [sugg, setSugg] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [caret, setCaret] = useState(0);
+
+  const model = useMemo(() => {
+    const m = new NGram();
+    SEED_MED.forEach((s) => m.learn(s));
+    return m;
+  }, []);
+
+  // aprende incrementalmente o que o médico digita
+  useEffect(() => {
+    model.learn(value);
+  }, [value, model]);
+
+  // Anti layout shift: barra com altura fixa
+  const BAR_H = 40; // px
+
+  const recompute = useCallback(
+    async (reason: 'input' | 'cursor' | 'toggle') => {
+      if (!enabled) {
+        setSugg([]);
         return;
       }
-      // Alt+P liga/desliga
-      if (e.key.toLowerCase() === 'p') {
-        e.preventDefault(); setEnabled(v => !v); return;
+      const ref = taRef.current;
+      const pos = ref ? ref.selectionStart ?? value.length : value.length;
+      setCaret(pos);
+
+      const localFirst = mode === 'local' || mode === 'auto';
+      const serverFirst = mode === 'server';
+
+      let out: string[] = [];
+
+      if (localFirst) {
+        out = model.suggest(value, maxSuggestions, pos);
+        if (out.length < maxSuggestions && mode === 'auto') {
+          const server = await fetchServerSuggestions(value, context, pos, maxSuggestions);
+          out = [...out, ...server.filter((w) => !out.includes(w))].slice(0, maxSuggestions);
+        }
+      } else if (serverFirst) {
+        const server = await fetchServerSuggestions(value, context, pos, maxSuggestions);
+        out = server.length ? server : model.suggest(value, maxSuggestions, pos);
       }
-    }
-    // Tab aceita 1ª
-    if (e.key === 'Tab' && suggestions[0]) { e.preventDefault(); accept(suggestions[0]); return; }
-    // Ctrl+Espaço força refresh (server/local)
-    if (e.ctrlKey && e.code === 'Space') { e.preventDefault(); /* efeito já atualiza automaticamente */ return; }
-    // Esc limpa sugestões
-    if (e.key === 'Escape') { e.preventDefault(); setSuggestions([]); return; }
-  };
+
+      // filtro final: remove progressões (g, go, got) e qualquer coisa não “palavra”
+      const range = getTokenRange(value, pos);
+      const current = value.slice(range.start, range.end).toLowerCase();
+      const clean = out.filter(
+        (w) =>
+          /^\p{L}+\p{M}*|\p{N}+$/u.test(w) &&
+          w !== current &&
+          (!current || (w.startsWith(current) && w.length - current.length >= 2))
+      );
+      setSugg(clean.slice(0, maxSuggestions));
+    },
+    [context, enabled, maxSuggestions, mode, model, value]
+  );
+
+  // recomputa ao digitar/mover cursor
+  useEffect(() => {
+    const t = setTimeout(() => void recompute('input'), 90);
+    return () => clearTimeout(t);
+  }, [value, recompute]);
+  useEffect(() => {
+    const ref = taRef.current;
+    if (!ref) return;
+    const onSel = () => void recompute('cursor');
+    ref.addEventListener('keyup', onSel);
+    ref.addEventListener('click', onSel);
+    return () => {
+      ref.removeEventListener('keyup', onSel);
+      ref.removeEventListener('click', onSel);
+    };
+  }, [recompute]);
+
+  const accept = useCallback(
+    (word: string) => {
+      const ref = taRef.current;
+      const pos = ref ? ref.selectionStart ?? value.length : value.length;
+      const range = getTokenRange(value, pos);
+      const next = replaceToken(value, range, word);
+      onChange(next);
+      // posiciona o caret ao fim da palavra recém inserida
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) return;
+        const newPos = (range.start + (range.start > 0 && !/\s$/.test(value.slice(0, range.start)) ? 1 : 0) + word.length + 1);
+        try {
+          el.focus();
+          el.setSelectionRange(newPos, newPos);
+        } catch {}
+      });
+      setSugg([]); // oculta após aceitar
+    },
+    [onChange, value]
+  );
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!enabled) return;
+      // Alt+1..5 aceita a numerada
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const n = Number(e.key);
+        if (n >= 1 && n <= 5) {
+          const w = sugg[n - 1];
+          if (w) {
+            e.preventDefault();
+            accept(w);
+          }
+          return;
+        }
+        if (e.key.toLowerCase() === 'p') {
+          e.preventDefault();
+          setEnabled((v) => !v);
+          return;
+        }
+      }
+      // Tab aceita a 1ª sugestão
+      if (e.key === 'Tab' && sugg[0]) {
+        e.preventDefault(); // evita inserir tab/blur
+        accept(sugg[0]);
+        return;
+      }
+      // Esc limpa
+      if (e.key === 'Escape') {
+        if (sugg.length) {
+          e.preventDefault();
+          setSugg([]);
+        }
+      }
+    },
+    [accept, enabled, sugg]
+  );
 
   return (
-    <div className={props.className}>
-      <div className="mb-2 flex gap-2 flex-wrap items-center">
-        {suggestions.map((s, i) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => accept(s)}
-            className="px-2 py-1 text-sm rounded border hover:bg-gray-50"
-            aria-label={`Sugerir ${s}`}
-            title={`Alt+${i+1}`}
-          >
-            <span className="font-semibold opacity-60 mr-1">{i+1}</span>{s}
-          </button>
-        ))}
-        <label className="ml-auto text-xs flex items-center gap-2">
-          <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
-          sugestões {enabled ? 'ligadas' : 'desligadas'} ({mode})
-        </label>
+    <div className={className}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-sm text-slate-600">Sugestões</span>
+        <button
+          type="button"
+          onClick={() => {
+            setEnabled((v) => !v);
+            requestAnimationFrame(() => recompute('toggle'));
+          }}
+          className={`h-6 px-2 rounded border text-xs ${enabled ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-300'}`}
+          aria-pressed={enabled}
+        >
+          {enabled ? 'Ligado' : 'Desligado'} (Alt+P)
+        </button>
+      </div>
+
+      {/* Barra anti layout-shift: altura fixa, overflow-x para rolar chips */}
+      <div
+        role="listbox"
+        aria-label="Sugestões de palavras"
+        className="relative mb-2"
+        style={{ minHeight: BAR_H, height: BAR_H }}
+      >
+        <div className="absolute inset-0 flex items-center gap-2 overflow-x-auto whitespace-nowrap px-1">
+          {enabled &&
+            sugg.map((w, i) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => accept(w)}
+                className="border rounded-full px-2 py-1 text-xs bg-white hover:bg-slate-50 shrink-0"
+                aria-label={`Sugestão ${i + 1}: ${w}`}
+                title={`Alt+${i + 1}`}
+              >
+                <span className="opacity-60 mr-1">{i + 1}</span>
+                {w}
+              </button>
+            ))}
+        </div>
       </div>
 
       <textarea
-        id={props.id}
-        placeholder={props.placeholder ?? 'Digite a prescrição...'}
-        disabled={props.disabled}
+        id={id}
+        ref={taRef}
+        className="w-full min-h-[120px] border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
-        className="w-full min-h-[160px] rounded border p-3 outline-none focus:ring"
-        aria-describedby={props.id ? `${props.id}-help` : undefined}
+        onScroll={() => {/* nada: evita recompute excessivo */}}
+        placeholder="Digite a prescrição… (Tab aceita a 1ª sugestão; Alt+1..5 aceita numeradas; Esc limpa)"
       />
-      <p id={props.id ? `${props.id}-help` : undefined} className="mt-1 text-xs text-gray-500">
-        Atalhos: <kbd>Alt</kbd>+<kbd>1..5</kbd> aceita; <kbd>Tab</kbd> aceita a 1ª;
-        <kbd>Ctrl</kbd>+<kbd>Espaço</kbd> atualiza; <kbd>Alt</kbd>+<kbd>P</kbd> liga/desliga; <kbd>Esc</kbd> limpa.
-      </p>
+      <div className="mt-2 text-[11px] text-slate-500">
+        Dicas: <kbd className="px-1 border rounded">Tab</kbd> aceita 1ª ·{' '}
+        <kbd className="px-1 border rounded">Alt</kbd>+<kbd className="px-1 border rounded">1..5</kbd> aceita numeradas ·{' '}
+        <kbd className="px-1 border rounded">Esc</kbd> limpa ·{' '}
+        <kbd className="px-1 border rounded">Alt</kbd>+<kbd className="px-1 border rounded">P</kbd> liga/desliga
+      </div>
     </div>
   );
 }
-export default SmartPredictTextarea;
