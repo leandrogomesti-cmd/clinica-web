@@ -2005,8 +2005,6 @@ function Textarea({
 }) {
   return (
     <div>
-      {/* Se você já tiver um <Label /> no arquivo, ele será reutilizado.
-         Caso não exista, troque por <div className="text-sm text-slate-500 mb-1">{label}</div> */}
       <Label>{label}</Label>
       <textarea
         className="border rounded-xl px-3 py-2 w-full min-h-[88px]"
@@ -2071,9 +2069,7 @@ Conduta: ${conduta}`,
       "Compressas mornas 2x/dia",
       "Revisão em 30 dias ou se piora",
     ].join(" • ");
-    alert(
-      `Condutas sugeridas (apoio, não substitui julgamento clínico): • ${lista}\n\nFonte: Diretriz fictícia SBO 2024`,
-    );
+    alert(`Condutas sugeridas (apoio, não substitui julgamento clínico): • ${lista}`);
   }
   function sugerirRetorno() {
     const dias = diagnostico.toLowerCase().includes("blefarite") ? 15 : 30;
@@ -2085,7 +2081,6 @@ Conduta: ${conduta}`,
     setItens((prev) => [...prev, falado]);
   }
 
-  // ---------- UI ----------
   const medicamentos = ["Dipirona 500mg", "Ibuprofeno 400mg", "Colírio Lubrificante", "Prednisolona 20mg"];
 
   return (
@@ -2114,53 +2109,52 @@ Conduta: ${conduta}`,
             </button>
           </div>
 
-{/* ---------- Prescrição ---------- */}
-<div className="md:col-span-2">
-  <Card title="Prescrição">
-    {/* Campo preditivo */}
-    <SmartPredictTextarea
-      id="prescricao"
-      className="mb-3"
-      context={`${diagnostico}; ${conduta}; ${subjetivo}`}
-      maxSuggestions={3}
-      mode="server"
-      onConfirmSuggestion={(palavra: string) =>
-        setNovoItem((v) => (v ? v + " " + palavra : palavra))
-      }
-    />
+          {/* ---------- Prescrição ---------- */}
+          <div className="md:col-span-2">
+            <Card title="Prescrição">
+              {/* Campo preditivo */}
+              <SmartPredictTextarea
+                id="prescricao"
+                className="mb-3"
+                context={`${diagnostico}; ${conduta}; ${subjetivo}`}
+                maxSuggestions={3}
+                mode="server"
+              />
 
-    <div className="flex gap-2">
-      <input
-        className="border rounded-xl px-3 py-2 w-full"
-        list="med-list"
-        placeholder="Buscar medicamento"
-        value={novoItem}
-        onChange={(e) => setNovoItem(e.target.value)}
-      />
-      <datalist id="med-list">
-        {medicamentos.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
-      <button className="px-3 py-2 rounded-xl border" onClick={addItem}>
-        Adicionar
-      </button>
-      <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>
-        Dictar → Receita
-      </button>
-    </div>
+              <div className="flex gap-2">
+                <input
+                  className="border rounded-xl px-3 py-2 w-full"
+                  list="med-list"
+                  placeholder="Buscar medicamento"
+                  value={novoItem}
+                  onChange={(e) => setNovoItem(e.target.value)}
+                />
+                <datalist id="med-list">
+                  {medicamentos.map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+                <button className="px-3 py-2 rounded-xl border" onClick={addItem}>
+                  Adicionar
+                </button>
+                <button className="px-3 py-2 rounded-xl border" onClick={ditadoParaReceita}>
+                  Dictar → Receita
+                </button>
+              </div>
 
-    <ul className="list-disc pl-5 mt-3 text-sm">
-      {itens.map((m, i) => (
-        <li key={i}>{m}</li>
-      ))}
-    </ul>
+              <ul className="list-disc pl-5 mt-3 text-sm">
+                {itens.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
 
-    <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>
-      Imprimir prescrição
-    </button>
-  </Card>
-</div>
+              <button className="mt-3 px-3 py-2 rounded-xl border" onClick={gerarPrescricao}>
+                Imprimir prescrição
+              </button>
+            </Card>
+          </div>
+        </div>
+      </Card>
 
       <Card title="Histórico">
         <div className="space-y-2 text-sm">
