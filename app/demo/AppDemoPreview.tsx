@@ -2024,6 +2024,7 @@ function Atendimento() {
   const [exame, setExame] = useState("ds");
   const [diagnostico, setDiagnostico] = useState("dsda");
   const [conduta, setConduta] = useState("sda da");
+  const [prescricao, setPrescricao] = useState("");
 
   // prescrição (mantém UI existente)
   const [novoItem, setNovoItem] = useState("");
